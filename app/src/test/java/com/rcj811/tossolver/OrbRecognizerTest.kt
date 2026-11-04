@@ -125,6 +125,19 @@ class OrbRecognizerTest {
     }
 
     @Test
+    fun autoDetectOtherSizes() {
+        for ((rows, h) in listOf(6 to 2340, 8 to 2400)) {
+            val rnd = Random(30L + rows)
+            val geo = BoardGeometry(0f, h - h * 0.02f - 180f * rows, 180f, rows)
+            val board = randomBoard(rows, rnd)
+            val frame = render(1080, h, geo, board, rnd)
+            val found = OrbRecognizer.autoDetect(frame, rows, ColorModel.defaults())
+            assertNotNull("rows $rows", found)
+            assertTrue("rows $rows top ${found!!.top} vs ${geo.top}", abs(found.top - geo.top) < 180f * 0.12f)
+        }
+    }
+
+    @Test
     fun blankScreenIsNotABoard() {
         val px = IntArray(1080 * 2340) { rgb(30, 30, 30) }
         assertNull(OrbRecognizer.autoDetect(Frame(1080, 2340, px), 5, ColorModel.defaults()))

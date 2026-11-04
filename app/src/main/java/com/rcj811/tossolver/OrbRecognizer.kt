@@ -170,17 +170,53 @@ object OrbRecognizer {
         return Recognition(geo.rows, colors, conf, feats)
     }
 
+    private val EDGE_T = floatArrayOf(0.2f, 0.35f, 0.5f, 0.65f, 0.8f)
+
+    /**
+     * 對齊分數 = Σ(格內信心 − 格線上取樣點投給該格顏色的比例)。
+     * 格線（珠與珠之間）應該是盤面背景；只看格內信心會偏向避開珠上的高光圖示，
+     * 加上格線檢查才能把格子對準珠心，也能排除整片同色的 UI 區塊。
+     */
+    fun alignmentScore(frame: Frame, geo: BoardGeometry, model: ColorModel): Float {
+        val rec = recognize(frame, geo, model)
+        val f = FloatArray(3)
+        val d2 = FloatArray(1)
+        val c = geo.cell
+        var score = 0f
+        for (i in 0 until geo.cells) {
+            val x0 = geo.left + (i % 6) * c
+            val y0 = geo.top + (i / 6) * c
+            var same = 0
+            var total = 0
+            for (e in EDGE_T) {
+                for (side in 0 until 4) {
+                    val px = when (side) { 0, 1 -> x0 + e * c; 2 -> x0; else -> x0 + c }
+                    val py = when (side) { 0 -> y0; 1 -> y0 + c; else -> y0 + e * c }
+                    total++
+                    val x = px.toInt()
+                    val y = py.toInt()
+                    if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) continue
+                    feature(frame.pixels[y * frame.width + x], f)
+                    val k = model.nearest(f, d2)
+                    if (d2[0] < VOTE_DIST2 && k == rec.colors[i]) same++
+                }
+            }
+            score += rec.confidence[i] - same.toFloat() / total
+        }
+        return score
+    }
+
     /**
      * 自動找盤面：假設盤面 6 欄、貼近畫面底部、左右對稱。
-     * 掃描左右邊距與底部距離，挑辨識信心總和最高的位置。
+     * 粗掃左右邊距與底部距離，再微調位置與格子大小，取對齊分數最高者。
      */
     fun autoDetect(frame: Frame, rows: Int, model: ColorModel): BoardGeometry? {
         val w = frame.width.toFloat()
         val h = frame.height.toFloat()
         var best: BoardGeometry? = null
-        var bestScore = -1f
-        for (marginFrac in floatArrayOf(0f, 0.02f, 0.04f, 0.06f, 0.08f, 0.10f)) {
-            val m = w * marginFrac
+        var bestScore = -1e9f
+        for (mi in 0..10) {
+            val m = w * mi * 0.01f
             val cell = (w - 2 * m) / 6f
             val bh = cell * rows
             if (bh > h * 0.8f) continue
@@ -188,19 +224,24 @@ object OrbRecognizer {
             var b = 0f
             while (b <= h * 0.35f) {
                 val g = BoardGeometry(m, h - b - bh, cell, rows)
-                val s = recognize(frame, g, model).totalConfidence()
+                val s = alignmentScore(frame, g, model)
                 if (s > bestScore) { bestScore = s; best = g }
                 b += step
             }
         }
         val coarse = best ?: return null
-        // 細調：上下左右小範圍微移
+        // 細調：以盤面中心 x、底部 y 為基準，微調格子大小與位置
         val fine = max(1f, coarse.cell / 48f)
+        val midX = coarse.left + 3 * coarse.cell
+        val bottom = coarse.bottom
         var refined = coarse
-        for (dy in -6..6) for (dx in -3..3) {
-            val g = coarse.moved(dx * fine, dy * fine)
-            val s = recognize(frame, g, model).totalConfidence()
-            if (s > bestScore) { bestScore = s; refined = g }
+        for (scale in floatArrayOf(0.98f, 0.99f, 1f, 1.01f, 1.02f)) {
+            val c = coarse.cell * scale
+            for (dy in -6..6) for (dx in -3..3) {
+                val g = BoardGeometry(midX - 3 * c + dx * fine, bottom - rows * c + dy * fine, c, rows)
+                val s = alignmentScore(frame, g, model)
+                if (s > bestScore) { bestScore = s; refined = g }
+            }
         }
         return if (bestScore >= rows * 6 * 0.55f) refined else null
     }
