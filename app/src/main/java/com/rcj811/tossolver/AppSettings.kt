@@ -125,6 +125,11 @@ class StagePresetStore(context: Context) {
     }
 
     fun clear() = sp.edit().remove("presets").apply()
+
+    fun delete(index: Int) {
+        val l = load()
+        if (index in l.indices) { l.removeAt(index); save(l) }
+    }
 }
 
 /** 自訂符石類別的存取 */
@@ -163,6 +168,13 @@ class OrbTypeStore(context: Context) {
 
     fun delete(id: Int) {
         val list = load().filter { it.id != id }
+        save(list)
+        OrbTypes.custom = list
+    }
+
+    /** 修改規則（保留 id 與學過的樣子） */
+    fun update(id: Int, name: String, noTouch: Boolean, dissolve: Int) {
+        val list = load().map { if (it.id == id) OrbType(id, name, noTouch, dissolve) else it }
         save(list)
         OrbTypes.custom = list
     }
@@ -220,6 +232,11 @@ class RuleStore(context: Context) {
     val count: Int get() = load().size
 
     fun clear() = sp.edit().remove("rules").apply()
+
+    fun delete(index: Int) {
+        val l = load()
+        if (index in l.indices) { l.removeAt(index); save(l) }
+    }
 }
 
 /** 顏色學習結果的存取 */
@@ -293,6 +310,23 @@ class ColorStore(context: Context) {
         }
         return if (parts.isEmpty()) "尚未學習特殊符石" else "已學特殊符石：" + parts.joinToString("、")
     }
+
+    /** 每種顏色有幾顆範例珠（顯示用） */
+    fun protoCounts(): IntArray {
+        val m = load()
+        return IntArray(6) { c -> m.protoLabels.count { it == c } }
+    }
+
+    /** 清除某一種顏色的範例珠（例如不小心把木珠標成火） */
+    fun clearProtos(color: Int) {
+        val m = load()
+        val keep = m.protoLabels.indices.filter { m.protoLabels[it] != color }
+        val m2 = ColorModel(m.centroids, m.weights, keep.map { m.protos[it] }.toMutableList(), keep.map { m.protoLabels[it] }.toMutableList())
+        save(m2, 0)
+    }
+
+    /** 每種符石類別學過幾個樣子 */
+    fun stateCount(id: Int): Int = loadStates().labels.count { it == id }
 
     /** 刪除某類別學過的樣子 */
     fun forgetState(id: Int) {

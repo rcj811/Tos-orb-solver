@@ -108,8 +108,8 @@ class MainActivity : Activity() {
         // 符石類別（內建＋自訂）
         typesText = note("")
         root.addView(typesText)
-        delTypeBtn = button("刪除自訂類別") {
-            OrbTypeDialog.showDelete(this) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
+        delTypeBtn = button("修改／刪除自訂類別") {
+            OrbTypeDialog.showManageTypes(this) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
         }
         root.addView(row(button("＋新增符石類別") {
             OrbTypeDialog.showAdd(this, overlay = false) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
@@ -128,6 +128,9 @@ class MainActivity : Activity() {
             refreshAuto()
         }
         root.addView(row(undoRuleBtn, clearRulesBtn))
+        root.addView(button("管理學習資料（一筆一筆刪除設定錯的）") {
+            OrbTypeDialog.showLearningData(this) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
+        })
         root.addView(button("清除所有記住的關卡") {
             StagePresetStore(this).clear()
             AutoTurnService.instance?.reloadModel()
