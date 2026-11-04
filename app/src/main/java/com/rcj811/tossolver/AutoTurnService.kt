@@ -448,8 +448,7 @@ class AutoTurnService : AccessibilityService() {
         activePreset = -1
         stage = StageRules()
         updateBar()
-        Toast.makeText(this, "讀到王的技能：${parse.skills.joinToString("、")}
-${parse.summary()}", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "讀到王的技能：${parse.skills.joinToString("、")}\n${parse.summary()}", Toast.LENGTH_LONG).show()
         if (!auto) return
         if (parse.manual.isNotEmpty()) {
             busy = false
