@@ -17,6 +17,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import java.util.Random
 
 /**
@@ -84,7 +85,7 @@ class MainActivity : Activity() {
         root.addView(autoStatus)
 
         enableBtn = button("開啟無障礙設定") { goEnable() }
-        root.addView(row(enableBtn, button("允許受限設定") { openAppDetails() }))
+        root.addView(row(enableBtn, button("允許受限設定") { goRestricted() }))
 
         modeBtn = button("") { settings.autoDrag = !settings.autoDrag; refreshAuto() }
         readBossBtn = button("") { settings.autoReadBoss = !settings.autoReadBoss; refreshAuto() }
@@ -222,21 +223,37 @@ class MainActivity : Activity() {
         main.postDelayed({ askPermissionsIfNeeded() }, 350)
     }
 
-    // ---------- 開啟時自動詢問權限 ----------
+    // ---------- 開啟權限的引導流程（自動跳到正確的設定頁，並提示要按哪裡） ----------
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
     private var dialog: AlertDialog? = null
     private var askedThisLaunch = false      // 按「稍後」後，這次開啟 App 就不再追問
-    private var wentToSettings = false       // 剛從無障礙設定回來
     private var wasEnabled = false
+
+    /** 引導目前走到哪一步（從設定頁回來時決定下一步） */
+    private enum class Step { NONE, ACCESSIBILITY, RESTRICTED }
+    private var step = Step.NONE
+
+    /**
+     * Android 13 以上：自己下載安裝的 App，要先「允許受限設定」才能開無障礙服務。
+     * 回傳 true = 已允許（或系統沒有這個限制），false = 還沒允許，null = 無法判斷
+     */
+    private fun restrictedAllowed(): Boolean? {
+        if (Build.VERSION.SDK_INT < 33) return true
+        return runCatching {
+            val aom = getSystemService(android.app.AppOpsManager::class.java)
+            val mode = aom.unsafeCheckOpNoThrow("android:access_restricted_settings", android.os.Process.myUid(), packageName)
+            mode == android.app.AppOpsManager.MODE_ALLOWED
+        }.getOrNull()
+    }
 
     private fun askPermissionsIfNeeded() {
         if (isFinishing || dialog?.isShowing == true) return
         if (Build.VERSION.SDK_INT < 30) return
         val on = AutoTurnService.isEnabled(this)
         if (on) {
-            if (!wasEnabled && wentToSettings) {
-                wentToSettings = false
+            if (!wasEnabled && step != Step.NONE) {
+                step = Step.NONE
                 showDialog("自轉珠已開啟 ✓",
                     "畫面上方會出現橫向懸浮工作列（可拖曳到你習慣的位置）。\n\n下一步：進入遊戲戰鬥，珠子靜止時按工作列的「校」→「自動偵測」對齊盤面 →「儲存並學習」。之後按 ▶ 就會自動執行。",
                     "知道了", {}, null, null)
@@ -245,28 +262,48 @@ class MainActivity : Activity() {
             return
         }
         wasEnabled = false
-        if (wentToSettings) {
-            // 去過設定卻沒開成：多半是 Android 13 以上的「受限設定」
-            wentToSettings = false
-            showDialog("還沒開啟自轉珠",
-                "如果「自轉珠」的開關是灰色、或跳出「受限設定」：\n\n" +
-                    "1. 按下方「允許受限設定」，會打開本 App 的應用程式資訊\n" +
-                    "2. 點右上角 ⋮ →「允許受限設定」（需要輸入手機密碼）\n" +
-                    "3. 回到 App，再按一次「前往開啟」\n\n" +
-                    "如果只是還沒按開關，直接按「前往開啟」即可。",
-                "前往開啟", { goEnable() },
-                "允許受限設定", { openAppDetails() })
-            return
+        when (step) {
+            Step.ACCESSIBILITY -> {
+                // 從無障礙設定回來但還沒開成
+                if (Build.VERSION.SDK_INT >= 33 && restrictedAllowed() != true) {
+                    autoJumpDialog("還差一步：允許受限設定",
+                        "因為自轉珠是自己下載安裝的，Android 需要你先允許「受限設定」。\n\n" +
+                            "等一下會自動跳到「應用程式資訊」頁：\n" +
+                            "① 點右上角「⋮」\n② 點「允許受限設定」\n③ 輸入手機密碼或指紋確認\n④ 按返回，回到自轉珠\n\n" +
+                            "回來後會自動帶你去打開開關。",
+                        "前往") { goRestricted() }
+                } else {
+                    showDialog("還沒打開開關",
+                        "在無障礙設定裡找到「自轉珠」（可能在「已安裝的應用程式」或「已下載的應用程式」裡），把開關打開，" +
+                            "跳出的確認視窗按「允許」。",
+                        "再試一次", { goAccessibility() }, "稍後", { step = Step.NONE })
+                }
+            }
+            Step.RESTRICTED -> {
+                // 從應用程式資訊回來
+                if (restrictedAllowed() == false) {
+                    showDialog("受限設定還沒允許",
+                        "在「應用程式資訊」頁：點右上角「⋮」→「允許受限設定」→ 輸入密碼確認。\n\n" +
+                            "如果「⋮」裡沒有這個選項：請先按「前往開啟」去打開一次自轉珠的開關（會被擋下），再回來就會出現。",
+                        "再試一次", { goRestricted() }, "前往開啟", { goAccessibility() })
+                } else {
+                    autoJumpDialog("已允許受限設定 ✓",
+                        "最後一步：等一下會自動跳到無障礙設定，把「自轉珠」的開關打開，確認視窗按「允許」。",
+                        "前往") { goAccessibility() }
+                }
+            }
+            Step.NONE -> {
+                if (askedThisLaunch) return
+                askedThisLaunch = true
+                showDialog("開啟「自轉珠」權限",
+                    "自動轉珠需要開啟無障礙服務「自轉珠」，才能：\n" +
+                        "• 顯示懸浮工作列\n• 截取遊戲畫面辨識盤面與按鈕\n• 代替你拖曳轉珠、點擊按鈕\n\n" +
+                        "截圖只在手機上即時處理，不會儲存或上傳。\n\n" +
+                        "按「開始設定」後會自動跳到設定頁，畫面下方會提示你要按哪裡；每做完一步回到這個 App，就會自動帶你到下一步。",
+                    "開始設定", { goAccessibility() },
+                    "稍後", {})
+            }
         }
-        if (askedThisLaunch) return
-        askedThisLaunch = true
-        showDialog("開啟「自轉珠」權限",
-            "自動轉珠需要開啟無障礙服務「自轉珠」，才能：\n" +
-                "• 顯示懸浮工作列\n• 截取遊戲畫面辨識盤面與按鈕\n• 代替你拖曳轉珠、點擊按鈕\n\n" +
-                "截圖只在手機上即時處理，不會儲存或上傳。\n\n" +
-                "按「前往開啟」後，找到「自轉珠」（可能在「已下載的應用程式」裡）並打開開關。",
-            "前往開啟", { goEnable() },
-            "稍後", {})
     }
 
     private fun showDialog(title: String, msg: String,
@@ -280,16 +317,62 @@ class MainActivity : Activity() {
         dialog = b.show()
     }
 
+    /** 倒數幾秒後自動前往；也可以馬上按或取消 */
+    private fun autoJumpDialog(title: String, msg: String, label: String, action: () -> Unit) {
+        var left = 4
+        var done = false
+        val d = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(title)
+            .setMessage(msg)
+            .setPositiveButton("$label（$left）") { _, _ -> if (!done) { done = true; action() } }
+            .setNegativeButton("稍後") { _, _ -> done = true; step = Step.NONE }
+            .create()
+        dialog = d
+        d.show()
+        val tick = object : Runnable {
+            override fun run() {
+                if (done || !d.isShowing) return
+                left--
+                if (left <= 0) { done = true; d.dismiss(); action(); return }
+                d.getButton(AlertDialog.BUTTON_POSITIVE)?.text = "$label（$left）"
+                main.postDelayed(this, 1000)
+            }
+        }
+        main.postDelayed(tick, 1000)
+    }
+
+    /** 在設定頁上方用提示告訴使用者要按哪裡（每則約 3.5 秒，依序顯示兩輪） */
+    private fun guide(vararg lines: String) {
+        var t = 600L
+        repeat(2) {
+            for (line in lines) {
+                main.postDelayed({ Toast.makeText(applicationContext, line, Toast.LENGTH_LONG).show() }, t)
+                t += 3700L
+            }
+        }
+    }
+
+    private fun goAccessibility() {
+        step = Step.ACCESSIBILITY
+        openAccessibilitySettings()
+        guide("找到「自轉珠」→ 把開關打開 → 確認視窗按「允許」",
+            "如果跳出「受限設定」：按「確定」，然後按返回回到自轉珠 App，會帶你處理")
+    }
+
+    private fun goRestricted() {
+        step = Step.RESTRICTED
+        openAppDetails()
+        guide("點右上角「⋮」→「允許受限設定」",
+            "輸入手機密碼確認後，按返回回到自轉珠 App")
+    }
+
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         dialog?.dismiss()
         super.onDestroy()
     }
 
-    private fun goEnable() {
-        wentToSettings = true
-        openAccessibilitySettings()
-    }
+    private fun goEnable() = goAccessibility()
 
     // ---------- 自動轉珠 ----------
 
