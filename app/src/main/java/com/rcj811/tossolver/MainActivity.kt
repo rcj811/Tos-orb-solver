@@ -1,10 +1,14 @@
 package com.rcj811.tossolver
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -14,11 +18,24 @@ import android.widget.TextView
 import java.util.Random
 
 /**
- * M1：手動輸入盤面 → 求解 → 顯示 / 播放路徑
- * 求解在背景執行緒進行，避免卡住畫面。
+ * 上半部：自動轉珠（無障礙服務）的開啟步驟與設定
+ * 下半部：手動模式（自己排盤面 → 求解 → 看路徑）
  */
 class MainActivity : Activity() {
 
+    private lateinit var settings: AppSettings
+    private lateinit var colorStore: ColorStore
+
+    // 自動轉珠
+    private lateinit var autoStatus: TextView
+    private lateinit var enableBtn: Button
+    private lateinit var modeBtn: Button
+    private lateinit var contBtn: Button
+    private lateinit var stepBtn: Button
+    private lateinit var timeBtn: Button
+    private lateinit var resetColorBtn: Button
+
+    // 手動模式
     private lateinit var board: BoardView
     private lateinit var status: TextView
     private lateinit var pathText: TextView
@@ -30,8 +47,6 @@ class MainActivity : Activity() {
     private val paletteViews = ArrayList<TextView>()
 
     private var rows = 5
-    private var beam = 450
-    private var dirs = 8
     private var solving = false
     private val rng = Random()
 
@@ -39,20 +54,59 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        settings = AppSettings(this)
+        colorStore = ColorStore(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(20), dp(16), dp(24))
+            setPadding(dp(16), dp(20), dp(16), dp(28))
             setBackgroundColor(Color.parseColor("#1C2329"))
         }
 
-        root.addView(TextView(this).apply {
-            text = "神魔之塔轉珠求解器"
-            textSize = 22f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-        })
+        root.addView(title("神魔之塔自動轉珠", 22f))
 
+        // ---------- 自動轉珠 ----------
+        autoStatus = TextView(this).apply {
+            textSize = 15f
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        root.addView(autoStatus)
+
+        enableBtn = button("開啟無障礙設定") { openAccessibilitySettings() }
+        root.addView(row(enableBtn, button("允許受限設定") { openAppDetails() }))
+
+        modeBtn = button("") { settings.autoDrag = !settings.autoDrag; refreshAuto() }
+        contBtn = button("") { settings.continuous = !settings.continuous; refreshAuto() }
+        root.addView(row(modeBtn, contBtn))
+
+        stepBtn = button("") { settings.stepMs = next(AppSettings.STEP_CHOICES, settings.stepMs); refreshAuto() }
+        timeBtn = button("") { settings.timeLimitSec = next(AppSettings.TIME_CHOICES, settings.timeLimitSec); refreshAuto() }
+        root.addView(row(stepBtn, timeBtn))
+
+        qualityBtn = button("") { settings.beam = if (settings.beam == 450) 1500 else 450; refreshAuto() }
+        dirsBtn = button("") { settings.dirs = if (settings.dirs == 8) 4 else 8; refreshAuto() }
+        root.addView(row(qualityBtn, dirsBtn))
+
+        resetColorBtn = button("") {
+            colorStore.reset()
+            AutoTurnService.instance?.reloadModel()
+            refreshAuto()
+        }
+        root.addView(resetColorBtn)
+
+        root.addView(note(
+            "開啟步驟（只需一次）：\n" +
+                "1. 按「開啟無障礙設定」→ 已下載的應用程式 →「轉珠助手」→ 開啟。\n" +
+                "　若開關是灰色、顯示「受限設定」：先按「允許受限設定」→ 右上角 ⋮ →「允許受限設定」，再回去開啟。\n" +
+                "2. 畫面上會出現紅色「轉」圓鈕（可拖曳到不擋盤面的位置）。\n" +
+                "3. 進入戰鬥，珠子靜止時「長按」圓鈕 → 按「自動偵測」對齊盤面，顏色不對就點格子修正 →「儲存並學習」。\n" +
+                "4. 之後每回合「點一下」圓鈕就會自動轉珠；開啟「連續自動」則會每回合自動出手，再點一次圓鈕停止。\n\n" +
+                "小提醒：如果遊戲沒跟上拖曳，把「每步」調慢；斜轉常失敗就改成 4 方向。\n" +
+                "自動操作違反遊戲使用條款，有被封帳號的風險，請自行斟酌。"
+        ))
+
+        // ---------- 手動模式 ----------
+        root.addView(title("手動模式", 18f).apply { setPadding(0, dp(22), 0, 0) })
         status = TextView(this).apply {
             textSize = 15f
             setTextColor(Color.parseColor("#B0BEC5"))
@@ -67,7 +121,6 @@ class MainActivity : Activity() {
         root.addView(board, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT))
 
-        // 調色盤：點選顏色後，在盤面上點擊或拖曳上色
         val palette = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(12), 0, dp(4))
@@ -88,16 +141,11 @@ class MainActivity : Activity() {
         }
         root.addView(palette)
 
-        // 設定列
         rowsBtn = button("版面 6×5") { cycleRows() }
-        qualityBtn = button("標準") { toggleQuality() }
-        dirsBtn = button("8 方向") { toggleDirs() }
-        root.addView(row(rowsBtn, qualityBtn, dirsBtn))
-
-        // 動作列
         solveBtn = button("求解") { solve() }
         playBtn = button("播放路徑") { togglePlay() }
-        root.addView(row(button("隨機盤") { randomBoard() }, solveBtn, playBtn))
+        root.addView(row(rowsBtn, button("隨機盤") { randomBoard() }))
+        root.addView(row(solveBtn, playBtn))
 
         pathText = TextView(this).apply {
             textSize = 15f
@@ -107,17 +155,70 @@ class MainActivity : Activity() {
         }
         root.addView(pathText)
 
-        root.addView(TextView(this).apply {
-            textSize = 13f
-            setTextColor(Color.parseColor("#78909C"))
-            text = "使用方式：選顏色後在盤面點擊或拖曳上色，照遊戲盤面排好後按「求解」。" +
-                "白圈是起點，箭頭是終點；「播放路徑」會一步步示範拖曳過程。\n" +
-                "「高品質」搜尋更廣、多約 0.2 combo，但約慢 3.5 倍。"
-        })
-
         setContentView(ScrollView(this).apply { addView(root) })
         selectColor(0)
         randomBoard()
+        refreshAuto()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshAuto()
+    }
+
+    // ---------- 自動轉珠 ----------
+
+    private fun refreshAuto() {
+        val on = AutoTurnService.isEnabled(this)
+        val geo = settings.hasGeometry
+        autoStatus.text = when {
+            Build.VERSION.SDK_INT < 30 -> "⚠ 自動轉珠需要 Android 11 以上（目前 Android ${Build.VERSION.RELEASE}），仍可使用手動模式"
+            !on -> "● 轉珠助手：未開啟（照下方步驟 1 開啟）"
+            !geo -> "● 轉珠助手：已開啟。下一步：在戰鬥畫面長按圓鈕校正盤面"
+            else -> "● 轉珠助手：已開啟、盤面已校正（6×${settings.geometry.rows}），在戰鬥中點圓鈕即可"
+        }
+        autoStatus.setTextColor(Color.parseColor(if (on && geo) "#69F0AE" else "#FFD54F"))
+        enableBtn.text = if (on) "無障礙設定（已開啟）" else "開啟無障礙設定"
+        modeBtn.text = if (settings.autoDrag) "模式：自動拖曳" else "模式：只顯示路徑"
+        contBtn.text = if (settings.continuous) "連續自動：開" else "連續自動：關"
+        stepBtn.text = "每步 ${settings.stepMs} ms"
+        timeBtn.text = "轉珠時間 ${settings.timeLimitSec} 秒"
+        qualityBtn.text = if (settings.beam == 450) "品質：標準" else "品質：高（較慢）"
+        dirsBtn.text = "${settings.dirs} 方向"
+        val learned = colorStore.learnedSamples
+        resetColorBtn.text = if (learned > 0) "重設顏色學習（已學 $learned 格）" else "顏色學習：尚未校正"
+        resetColorBtn.isEnabled = learned > 0
+    }
+
+    private fun next(choices: IntArray, cur: Int): Int {
+        val i = choices.indexOf(cur)
+        return choices[if (i < 0) 0 else (i + 1) % choices.size]
+    }
+
+    private fun openAccessibilitySettings() {
+        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+    }
+
+    private fun openAppDetails() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+    }
+
+    // ---------- 共用 UI ----------
+
+    private fun title(t: String, size: Float) = TextView(this).apply {
+        text = t
+        textSize = size
+        setTypeface(typeface, Typeface.BOLD)
+        setTextColor(Color.WHITE)
+    }
+
+    private fun note(t: String) = TextView(this).apply {
+        text = t
+        textSize = 13f
+        setTextColor(Color.parseColor("#90A4AE"))
+        setPadding(0, dp(8), 0, 0)
     }
 
     private fun button(label: String, onClick: () -> Unit) = Button(this).apply {
@@ -131,16 +232,17 @@ class MainActivity : Activity() {
         for (v in views) addView(v, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
     }
 
+    // ---------- 手動模式 ----------
+
     private fun selectColor(c: Int) {
         board.selectedColor = c
         for (i in paletteViews.indices) {
-            val d = GradientDrawable().apply {
+            paletteViews[i].background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(10).toFloat()
                 setColor(BoardView.ORB_COLORS[i])
                 if (i == c) setStroke(dp(4), Color.WHITE)
             }
-            paletteViews[i].background = d
         }
     }
 
@@ -150,16 +252,6 @@ class MainActivity : Activity() {
         rowsBtn.text = "版面 6×$rows"
         board.rows = rows
         randomBoard()
-    }
-
-    private fun toggleQuality() {
-        beam = if (beam == 450) 1500 else 450
-        qualityBtn.text = if (beam == 450) "標準" else "高品質"
-    }
-
-    private fun toggleDirs() {
-        dirs = if (dirs == 8) 4 else 8
-        dirsBtn.text = "$dirs 方向"
     }
 
     private fun onBoardChanged() {
@@ -181,7 +273,7 @@ class MainActivity : Activity() {
         board.solution = null
         board.invalidate()
         pathText.text = ""
-        status.text = "隨機盤面（無初始三連）。可直接求解，或改成遊戲中的盤面。"
+        status.text = "選顏色後在盤面點擊或拖曳上色，排成遊戲中的盤面，再按「求解」。"
     }
 
     private fun solve() {
@@ -193,11 +285,10 @@ class MainActivity : Activity() {
         status.text = "求解中…"
         val cells = board.cells.copyOf(rows * 6)
         val r = rows
-        val b = beam
-        val d = dirs
+        val b = settings.beam
+        val d = settings.dirs
         Thread {
-            val raw = NativeSolver.solve(cells, r, b, 25 + r * 2, d)
-            val res = SolveResult.from(raw)
+            val res = SolveResult.from(NativeSolver.solve(cells, r, b, 25 + r * 2, d))
             runOnUiThread { showResult(res) }
         }.start()
     }
@@ -211,14 +302,12 @@ class MainActivity : Activity() {
         }
         board.solution = res
         status.text = "${res.combos} combo（首消 ${res.firstCombos}）・${res.dirs.size} 步・${res.ms} ms"
-        val sr = res.start / 6 + 1
-        val sc = res.start % 6 + 1
         val arrows = StringBuilder()
         for (k in res.dirs.indices) {
             arrows.append(Dirs.ARROW[res.dirs[k]])
             if (k % 10 == 9) arrows.append(' ')
         }
-        pathText.text = "起點：第 $sr 列第 $sc 行\n路徑：$arrows"
+        pathText.text = "起點：第 ${res.start / 6 + 1} 列第 ${res.start % 6 + 1} 行\n路徑：$arrows"
     }
 
     private fun togglePlay() {

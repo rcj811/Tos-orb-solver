@@ -56,7 +56,15 @@ jobs:
           gradle-version: "8.7"
 
       - name: 編譯
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
+
+      - name: 上傳單元測試報告（失敗時方便查看）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
 
       - name: 整理檔名
         run: |
