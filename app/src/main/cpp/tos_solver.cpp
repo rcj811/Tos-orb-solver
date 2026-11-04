@@ -1,0 +1,390 @@
+// 神魔之塔轉珠求解核心實作（移植自 research/solver3.cpp，已移除驗證無效的選項）
+#include "tos_solver.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <unordered_set>
+
+namespace tos {
+
+const int DX[8] = {1, 0, -1, 0, 1, -1, -1, 1};
+const int DY[8] = {0, 1, 0, -1, 1, 1, -1, -1};
+
+namespace {
+
+const int REV[8] = {2, 3, 0, 1, 6, 7, 4, 5};
+const int C = COLS;
+const int MAXN = MAX_CELLS;
+const uint8_t F_NOTOUCH = F_ELEC | F_FROZEN | F_WEATHER;
+inline int col(uint8_t v) { return v & 7; }
+
+struct Board { uint8_t c[MAXN]; };
+
+// 每個執行緒各自一份求解情境，可同時在多執行緒求解
+struct Ctx {
+    int R = 5, N = 30;
+    Rules ru;
+    Config cfg;
+};
+thread_local Ctx X;
+
+int findCombos(const Board& b, bool mark[MAXN], int* typeMask = nullptr) {
+    const int R = X.R, N = X.N;
+    const Rules& RU = X.ru;
+    std::memset(mark, 0, MAXN);
+    auto ok = [&](int i) { return b.c[i] != EMPTY && !(b.c[i] & F_FROZEN) && !RU.crack[i]; };
+    for (int y = 0; y < R; y++)
+        for (int x = 0; x + 2 < C; x++) {
+            int i = y * C + x;
+            if (ok(i) && ok(i + 1) && ok(i + 2) && col(b.c[i]) == col(b.c[i + 1]) && col(b.c[i]) == col(b.c[i + 2]))
+                mark[i] = mark[i + 1] = mark[i + 2] = true;
+        }
+    for (int x = 0; x < C; x++)
+        for (int y = 0; y + 2 < R; y++) {
+            int i = y * C + x;
+            if (ok(i) && ok(i + C) && ok(i + 2 * C) && col(b.c[i]) == col(b.c[i + C]) &&
+                col(b.c[i]) == col(b.c[i + 2 * C]))
+                mark[i] = mark[i + C] = mark[i + 2 * C] = true;
+        }
+    bool seen[MAXN] = {};
+    int combos = 0, stk[MAXN], tm = 0;
+    for (int i = 0; i < N; i++) {
+        if (!mark[i] || seen[i]) continue;
+        combos++;
+        tm |= 1 << col(b.c[i]);
+        int sp = 0;
+        stk[sp++] = i;
+        seen[i] = true;
+        while (sp) {
+            int p = stk[--sp], px = p % C, py = p / C;
+            for (int d = 0; d < 4; d++) {
+                int nx = px + DX[d], ny = py + DY[d];
+                if (nx < 0 || nx >= C || ny < 0 || ny >= R) continue;
+                int q = ny * C + nx;
+                if (mark[q] && !seen[q] && col(b.c[q]) == col(b.c[i])) { seen[q] = true; stk[sp++] = q; }
+            }
+        }
+    }
+    if (typeMask) *typeMask = tm;
+    return combos;
+}
+
+void removeAndDrop(Board& b, const bool mark[MAXN]) {
+    const int R = X.R, N = X.N;
+    for (int i = 0; i < N; i++) if (mark[i]) b.c[i] = EMPTY;
+    for (int x = 0; x < C; x++) {
+        int w = R - 1;
+        for (int y = R - 1; y >= 0; y--)
+            if (b.c[y * C + x] != EMPTY) {
+                uint8_t v = b.c[y * C + x];
+                b.c[y * C + x] = EMPTY;
+                b.c[w * C + x] = v;
+                w--;
+            }
+    }
+}
+
+struct Info {
+    int combos = 0, first = 0, firstMask = 0, mask = 0, cleared = 0;
+    int elecLeft = 0, weatherCleared = 0, shieldCover = 0;
+    bool shieldBroken = false;
+    Board after;
+};
+
+Info resolve(Board b) {
+    const int N = X.N;
+    const Rules& RU = X.ru;
+    Info in;
+    bool mark[MAXN];
+    if (RU.shieldN) {
+        int cnt[8] = {};
+        for (int i = 0; i < N; i++) if (RU.shield[i] && b.c[i] != EMPTY) cnt[col(b.c[i])]++;
+        in.shieldCover = *std::max_element(cnt, cnt + 8);
+    }
+    for (int round = 0;; round++) {
+        int tm = 0, c = findCombos(b, mark, &tm);
+        if (!c) break;
+        int orbs = 0;
+        for (int i = 0; i < N; i++)
+            if (mark[i]) { orbs++; if (b.c[i] & F_WEATHER) in.weatherCleared++; }
+        if (round == 0) {
+            in.first = c;
+            in.firstMask = tm;
+            if (RU.shieldN && in.shieldCover == RU.shieldN) {
+                in.shieldBroken = true;
+                for (int i = 0; i < N; i++) if (RU.shield[i] && !mark[i]) { in.shieldBroken = false; break; }
+            }
+        }
+        in.combos += c;
+        in.mask |= tm;
+        in.cleared += orbs;
+        removeAndDrop(b, mark);
+    }
+    for (int i = 0; i < N; i++) if (b.c[i] != EMPTY && (b.c[i] & F_ELEC)) in.elecLeft++;
+    in.after = b;
+    return in;
+}
+
+void features(const Info& in, int len, float f[NUM_FEATURES]) {
+    const int R = X.R;
+    const Board& a = in.after;
+    int adj = 0, gap = 0, diag = 0, cnt[8] = {};
+    for (int y = 0; y < R; y++)
+        for (int x = 0; x < C; x++) {
+            uint8_t v = a.c[y * C + x];
+            if (v == EMPTY) continue;
+            int k = col(v);
+            cnt[k]++;
+            auto same = [&](int xx, int yy) {
+                if (xx < 0 || xx >= C || yy >= R) return false;
+                uint8_t u = a.c[yy * C + xx];
+                return u != EMPTY && col(u) == k;
+            };
+            adj += same(x + 1, y) + same(x, y + 1);
+            gap += same(x + 2, y) + same(x, y + 2);
+            diag += same(x + 1, y + 1) + same(x - 1, y + 1);
+        }
+    int c3 = 0;
+    for (int k = 0; k < 6; k++) c3 += cnt[k] >= 3;
+    f[0] = adj; f[1] = gap; f[2] = diag; f[3] = in.cleared; f[4] = len; f[5] = in.first; f[6] = c3;
+}
+
+bool endOk(int pos) {
+    const Rules& RU = X.ru;
+    if (RU.anyFlame && !RU.flameEnd[pos]) return false;
+    if (RU.blackHole[pos]) return false;
+    if (RU.red >= 0 && pos != RU.red) return false;
+    return true;
+}
+
+bool goalsOk(const Info& in, int pos) {
+    const Rules& RU = X.ru;
+    if (!endOk(pos)) return false;
+    if (in.elecLeft) return false;
+    if (in.combos < RU.comboMin || in.first < RU.firstMin) return false;
+    if (RU.firstExact >= 0 && in.first != RU.firstExact) return false;
+    if (in.firstMask & RU.antiMask) return false;
+    if ((in.mask & RU.elemMask) != RU.elemMask) return false;
+    if (RU.shieldN && !in.shieldBroken) return false;
+    return true;
+}
+
+struct State {
+    Board b;
+    int8_t pos, last, start;
+    uint8_t len;
+    float weight;
+    int combos;
+    bool ok;
+    uint64_t visited;
+    uint8_t used[MAXN];
+    uint8_t hurt;
+    uint8_t path[MAX_PATH + 4];
+};
+
+void score(State& s) {
+    const Rules& RU = X.ru;
+    const Config& cfg = X.cfg;
+    Info in = resolve(s.b);
+    s.combos = in.combos;
+    float f[NUM_FEATURES];
+    features(in, s.len, f);
+    float w = in.combos * 1000.0f;
+    for (int i = 0; i < NUM_FEATURES; i++) w += cfg.weights[i] * f[i];
+    w -= in.elecLeft * 1500;
+    w += in.weatherCleared * 200;
+    if (RU.comboMin && in.combos < RU.comboMin) w -= (RU.comboMin - in.combos) * 800;
+    if (RU.firstMin && in.first < RU.firstMin) w -= (RU.firstMin - in.first) * 800;
+    if (RU.firstMin) w += in.first * 400;
+    if (RU.firstExact >= 0) w -= std::abs(in.first - RU.firstExact) * 1500;
+    w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
+    w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
+    if (RU.shieldN)
+        w += (in.shieldCover == RU.shieldN ? 2800 + RU.shieldN * 300
+                                           : in.shieldCover * in.shieldCover * cfg.shieldGuide);
+    if (endOk(s.pos)) w += 300;
+    s.ok = goalsOk(in, s.pos);
+    if (s.ok) w += 20000;
+    s.weight = w;
+}
+
+bool better(const State& a, const State& b) {
+    if (a.ok != b.ok) return a.ok;
+    if (a.combos != b.combos) return a.combos > b.combos;
+    return a.len < b.len;
+}
+
+bool step(const State& s, int d, State& n) {
+    const int R = X.R, N = X.N;
+    const Rules& RU = X.ru;
+    int x = s.pos % C, y = s.pos / C, nx = x + DX[d], ny = y + DY[d];
+    if (nx < 0 || nx >= C || ny < 0 || ny >= R) return false;
+    int np = ny * C + nx;
+    if (s.b.c[np] == EMPTY || (s.b.c[np] & F_NOTOUCH) || RU.noTouch[np]) return false;
+    if (RU.stickyPath && (s.visited >> np & 1)) return false;
+    if (s.len >= MAX_PATH) return false;
+    n = s;
+    if (RU.firePath) {
+        for (int i = 0; i < N; i++) if (n.used[i]) n.used[i]--;
+        if (n.used[np]) n.hurt++;
+        if (n.hurt > RU.maxHurt) return false;
+        n.used[np] = RU.fireSize;
+    }
+    std::swap(n.b.c[s.pos], n.b.c[np]);
+    if (RU.meta[np] >= 0) n.b.c[np] = (n.b.c[np] & ~7) | RU.meta[np];
+    n.pos = np;
+    n.last = d;
+    n.path[n.len++] = d;
+    n.visited |= 1ULL << np;
+    return true;
+}
+
+uint64_t hashState(const State& s) {
+    const int N = X.N;
+    const Rules& RU = X.ru;
+    uint64_t h = 1469598103934665603ULL;
+    for (int i = 0; i < N; i++) { h ^= s.b.c[i]; h *= 1099511628211ULL; }
+    h ^= (uint64_t)s.pos * 0x9E3779B97F4A7C15ULL;
+    if (RU.stickyPath) h ^= s.visited * 0xC2B2AE3D27D4EB4FULL;
+    if (RU.firePath) {
+        for (int i = 0; i < N; i++) { h ^= s.used[i]; h *= 1099511628211ULL; }
+        h ^= s.hurt;
+    }
+    return h;
+}
+
+bool initState(const Board& init, int i, State& s) {
+    const Rules& RU = X.ru;
+    if (init.c[i] == EMPTY || (init.c[i] & F_NOTOUCH) || RU.noTouch[i]) return false;
+    if (RU.green >= 0 && i != RU.green) return false;
+    s.b = init;
+    s.pos = i; s.last = -1; s.len = 0; s.start = i;
+    s.visited = 1ULL << i;
+    std::memset(s.used, 0, sizeof s.used);
+    s.hurt = 0;
+    if (RU.firePath) s.used[i] = RU.fireSize;
+    if (RU.meta[i] >= 0) s.b.c[i] = (s.b.c[i] & ~7) | RU.meta[i];
+    return true;
+}
+
+bool beamSearch(const Board& init, State& bestOut) {
+    const int N = X.N;
+    const Config& cfg = X.cfg;
+    const int beam = std::max(1, cfg.beam);
+    const int maxPath = std::min(cfg.maxPath, MAX_PATH);
+    std::vector<State> pool, next;
+    pool.reserve(beam * 8);
+    next.reserve(beam * 8);
+    for (int i = 0; i < N; i++) {
+        State s;
+        if (!initState(init, i, s)) continue;
+        score(s);
+        pool.push_back(s);
+    }
+    if (pool.empty()) return false;
+    State best = pool[0];
+    for (auto& s : pool) if (better(s, best)) best = s;
+    std::unordered_set<uint64_t> seen;
+    std::vector<int> perPos(MAXN);
+    auto cmp = [](const State& a, const State& b) { return a.weight > b.weight; };
+    for (int st = 0; st < maxPath && !pool.empty(); st++) {
+        next.clear();
+        seen.clear();
+        for (auto& s : pool)
+            for (int d = 0; d < cfg.dirs; d++) {
+                if (s.last >= 0 && d == REV[s.last]) continue;
+                State n;
+                if (!step(s, d, n)) continue;
+                if (!seen.insert(hashState(n)).second) continue;   // 狀態去重
+                score(n);
+                if (better(n, best)) best = n;
+                next.push_back(n);
+            }
+        if ((int)next.size() > beam) {
+            if (cfg.divK > 0) {   // 多樣性：限制同一手指位置的狀態數
+                std::sort(next.begin(), next.end(), cmp);
+                int cap = std::max(1, (int)std::ceil(beam * cfg.divK / N));
+                std::fill(perPos.begin(), perPos.end(), 0);
+                std::vector<State> keep, rest;
+                keep.reserve(beam);
+                for (auto& s : next) {
+                    if ((int)keep.size() < beam && perPos[s.pos] < cap) { perPos[s.pos]++; keep.push_back(s); }
+                    else rest.push_back(s);
+                }
+                for (size_t i = 0; i < rest.size() && (int)keep.size() < beam; i++) keep.push_back(rest[i]);
+                next.swap(keep);
+            } else {
+                std::nth_element(next.begin(), next.begin() + beam, next.end(), cmp);
+                next.resize(beam);
+            }
+        }
+        std::swap(pool, next);
+    }
+    bestOut = best;
+    return true;
+}
+
+void setup(const uint8_t* cells, int rows, const Rules& rules, Board& b) {
+    X.R = std::max(3, std::min(MAX_ROWS, rows));
+    X.N = X.R * C;
+    X.ru = rules;
+    std::memset(b.c, EMPTY, sizeof b.c);
+    std::memcpy(b.c, cells, X.N);
+}
+
+}  // namespace
+
+Rules::Rules() { std::fill(meta, meta + MAX_CELLS, -1); }
+
+Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
+    auto t0 = std::chrono::steady_clock::now();
+    Board b;
+    setup(cells, cfg.rows, rules, b);
+    X.cfg = cfg;
+    Solution r;
+    State best;
+    if (!beamSearch(b, best)) return r;
+    Info in = resolve(best.b);
+    r.found = true;
+    r.combos = in.combos;
+    r.firstCombos = in.first;
+    r.goalsMet = best.ok;
+    r.start = best.start;
+    r.dirs.assign(best.path, best.path + best.len);
+    r.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    return r;
+}
+
+Outcome replay(const uint8_t* cells, int start, const std::vector<int>& dirs, const Config& cfg, const Rules& rules) {
+    Board b;
+    setup(cells, cfg.rows, rules, b);
+    X.cfg = cfg;
+    Outcome o;
+    if (start < 0 || start >= X.N) return o;
+    State s;
+    if (!initState(b, start, s)) return o;
+    for (int d : dirs) {
+        if (d < 0 || d >= 8) return o;
+        State n;
+        if (!step(s, d, n)) return o;
+        s = n;
+    }
+    Info in = resolve(s.b);
+    o.legal = true;
+    o.combos = in.combos;
+    o.firstCombos = in.first;
+    o.goalsMet = goalsOk(in, s.pos);
+    return o;
+}
+
+int countCombos(const uint8_t* cells, int rows, const Rules& rules) {
+    Board b;
+    setup(cells, rows, rules, b);
+    bool mark[MAXN];
+    return findCombos(b, mark);
+}
+
+}  // namespace tos

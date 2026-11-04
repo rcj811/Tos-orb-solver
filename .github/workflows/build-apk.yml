@@ -1,0 +1,70 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
+
+jobs:
+  solver-tests:
+    name: 求解核心測試
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 編譯並執行測試
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Iapp/src/main/cpp \
+            app/src/main/cpp/tos_solver.cpp tests/test_solver.cpp -o test_solver
+          ./test_solver
+
+  apk:
+    name: 編譯 APK
+    needs: solver-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安裝 NDK / CMake / SDK 平台
+        run: sdkmanager --install "ndk;26.3.11579264" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: 還原固定 debug 簽章
+        run: base64 -d ci/debug.keystore.b64 > ci/debug.keystore
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: 編譯
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
+
+      - name: 整理檔名
+        run: cp app/build/outputs/apk/debug/app-debug.apk "tos-orb-solver-${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tos-orb-solver-apk
+          path: tos-orb-solver-*.apk
+
+      - name: 發布到 Releases（手機可直接下載）
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: 轉珠求解器 build ${{ github.run_number }}
+          body: 由 commit ${{ github.sha }} 自動編譯。下載 APK 後安裝即可（首次需允許安裝未知來源 App）。
+          files: tos-orb-solver-*.apk
+          prerelease: true
+          make_latest: true
