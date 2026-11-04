@@ -1,6 +1,8 @@
 package com.rcj811.tossolver
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -76,7 +78,7 @@ class MainActivity : Activity() {
         }
         root.addView(autoStatus)
 
-        enableBtn = button("開啟無障礙設定") { openAccessibilitySettings() }
+        enableBtn = button("開啟無障礙設定") { goEnable() }
         root.addView(row(enableBtn, button("允許受限設定") { openAppDetails() }))
 
         modeBtn = button("") { settings.autoDrag = !settings.autoDrag; refreshAuto() }
@@ -186,6 +188,76 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshAuto()
+        main.postDelayed({ askPermissionsIfNeeded() }, 350)
+    }
+
+    // ---------- 開啟時自動詢問權限 ----------
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var dialog: AlertDialog? = null
+    private var askedThisLaunch = false      // 按「稍後」後，這次開啟 App 就不再追問
+    private var wentToSettings = false       // 剛從無障礙設定回來
+    private var wasEnabled = false
+
+    private fun askPermissionsIfNeeded() {
+        if (isFinishing || dialog?.isShowing == true) return
+        if (Build.VERSION.SDK_INT < 30) return
+        val on = AutoTurnService.isEnabled(this)
+        if (on) {
+            if (!wasEnabled && wentToSettings) {
+                wentToSettings = false
+                showDialog("轉珠助手已開啟 ✓",
+                    "畫面右側會出現懸浮工作列。\n\n下一步：進入遊戲戰鬥，珠子靜止時按工作列的「校」→「自動偵測」對齊盤面 →「儲存並學習」。之後按 ▶ 就會自動執行。",
+                    "知道了", {}, null, null)
+            }
+            wasEnabled = true
+            return
+        }
+        wasEnabled = false
+        if (wentToSettings) {
+            // 去過設定卻沒開成：多半是 Android 13 以上的「受限設定」
+            wentToSettings = false
+            showDialog("還沒開啟轉珠助手",
+                "如果「轉珠助手」的開關是灰色、或跳出「受限設定」：\n\n" +
+                    "1. 按下方「允許受限設定」，會打開本 App 的應用程式資訊\n" +
+                    "2. 點右上角 ⋮ →「允許受限設定」（需要輸入手機密碼）\n" +
+                    "3. 回到 App，再按一次「前往開啟」\n\n" +
+                    "如果只是還沒按開關，直接按「前往開啟」即可。",
+                "前往開啟", { goEnable() },
+                "允許受限設定", { openAppDetails() })
+            return
+        }
+        if (askedThisLaunch) return
+        askedThisLaunch = true
+        showDialog("開啟「轉珠助手」權限",
+            "自動轉珠需要開啟無障礙服務「轉珠助手」，才能：\n" +
+                "• 顯示懸浮工作列\n• 截取遊戲畫面辨識盤面與按鈕\n• 代替你拖曳轉珠、點擊按鈕\n\n" +
+                "截圖只在手機上即時處理，不會儲存或上傳。\n\n" +
+                "按「前往開啟」後，找到「轉珠助手」（可能在「已下載的應用程式」裡）並打開開關。",
+            "前往開啟", { goEnable() },
+            "稍後", {})
+    }
+
+    private fun showDialog(title: String, msg: String,
+                           posLabel: String, onPos: () -> Unit,
+                           negLabel: String?, onNeg: (() -> Unit)?) {
+        val b = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(title)
+            .setMessage(msg)
+            .setPositiveButton(posLabel) { _, _ -> onPos() }
+        if (negLabel != null) b.setNegativeButton(negLabel) { _, _ -> onNeg?.invoke() }
+        dialog = b.show()
+    }
+
+    override fun onDestroy() {
+        main.removeCallbacksAndMessages(null)
+        dialog?.dismiss()
+        super.onDestroy()
+    }
+
+    private fun goEnable() {
+        wentToSettings = true
+        openAccessibilitySettings()
     }
 
     // ---------- 自動轉珠 ----------
@@ -222,8 +294,18 @@ class MainActivity : Activity() {
         return choices[if (i < 0) 0 else (i + 1) % choices.size]
     }
 
+    /** 盡量直接打開「轉珠助手」的開關頁；手機不支援時打開無障礙清單並標出它 */
     private fun openAccessibilitySettings() {
-        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        val comp = ComponentName(this, AutoTurnService::class.java).flattenToString()
+        val direct = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+            .putExtra(Intent.EXTRA_COMPONENT_NAME, comp)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { startActivity(direct) }.isSuccess) return
+        val list = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            .putExtra(":settings:fragment_args_key", comp)
+            .putExtra(":settings:show_fragment_args", android.os.Bundle().apply { putString(":settings:fragment_args_key", comp) })
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { startActivity(list) }
     }
 
     private fun openAppDetails() {
