@@ -31,7 +31,7 @@ struct Ctx {
 };
 thread_local Ctx X;
 
-int findCombos(const Board& b, bool mark[MAXN], int* typeMask = nullptr) {
+int findCombos(const Board& b, bool mark[MAXN], int* typeMask = nullptr, int* attrCombos = nullptr) {
     const int R = X.R, N = X.N;
     const Rules& RU = X.ru;
     std::memset(mark, 0, MAXN);
@@ -50,10 +50,11 @@ int findCombos(const Board& b, bool mark[MAXN], int* typeMask = nullptr) {
                 mark[i] = mark[i + C] = mark[i + 2 * C] = true;
         }
     bool seen[MAXN] = {};
-    int combos = 0, stk[MAXN], tm = 0;
+    int combos = 0, stk[MAXN], tm = 0, attr = 0;
     for (int i = 0; i < N; i++) {
         if (!mark[i] || seen[i]) continue;
         combos++;
+        if (col(b.c[i]) != HEART) attr++;
         tm |= 1 << col(b.c[i]);
         int sp = 0;
         stk[sp++] = i;
@@ -69,6 +70,7 @@ int findCombos(const Board& b, bool mark[MAXN], int* typeMask = nullptr) {
         }
     }
     if (typeMask) *typeMask = tm;
+    if (attrCombos) *attrCombos = attr;
     return combos;
 }
 
@@ -88,7 +90,7 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 }
 
 struct Info {
-    int combos = 0, first = 0, firstMask = 0, mask = 0, cleared = 0;
+    int combos = 0, first = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
     int elecLeft = 0, weatherCleared = 0, shieldCover = 0;
     bool shieldBroken = false;
     Board after;
@@ -105,13 +107,14 @@ Info resolve(Board b) {
         in.shieldCover = *std::max_element(cnt, cnt + 8);
     }
     for (int round = 0;; round++) {
-        int tm = 0, c = findCombos(b, mark, &tm);
+        int tm = 0, attr = 0, c = findCombos(b, mark, &tm, &attr);
         if (!c) break;
         int orbs = 0;
         for (int i = 0; i < N; i++)
             if (mark[i]) { orbs++; if (b.c[i] & F_WEATHER) in.weatherCleared++; }
         if (round == 0) {
             in.first = c;
+            in.firstAttr = attr;
             in.firstMask = tm;
             if (RU.shieldN && in.shieldCover == RU.shieldN) {
                 in.shieldBroken = true;
@@ -165,6 +168,7 @@ bool goalsOk(const Info& in, int pos) {
     if (!endOk(pos)) return false;
     if (in.elecLeft) return false;
     if (in.combos < RU.comboMin || in.first < RU.firstMin) return false;
+    if (in.firstAttr < RU.firstAttrMin) return false;
     if (RU.firstExact >= 0 && in.first != RU.firstExact) return false;
     if (in.firstMask & RU.antiMask) return false;
     if ((in.mask & RU.elemMask) != RU.elemMask) return false;
@@ -199,6 +203,8 @@ void score(State& s) {
     if (RU.comboMin && in.combos < RU.comboMin) w -= (RU.comboMin - in.combos) * 800;
     if (RU.firstMin && in.first < RU.firstMin) w -= (RU.firstMin - in.first) * 800;
     if (RU.firstMin) w += in.first * 400;
+    if (RU.firstAttrMin && in.firstAttr < RU.firstAttrMin) w -= (RU.firstAttrMin - in.firstAttr) * 800;
+    if (RU.firstAttrMin) w += in.firstAttr * 400;
     if (RU.firstExact >= 0) w -= std::abs(in.first - RU.firstExact) * 1500;
     w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
@@ -341,7 +347,7 @@ Rules::Rules() { std::fill(meta, meta + MAX_CELLS, -1); }
 
 bool rulesFromInts(const int* v, int n, Rules& out) {
     out = Rules();
-    if (!v || n < RULES_INTS || v[0] != 1) return false;
+    if (!v || n < RULES_INTS_V1 || v[0] != 1) return false;
     out.comboMin = std::max(0, v[1]);
     out.firstMin = std::max(0, v[2]);
     out.firstExact = v[3] >= 0 ? v[3] : -1;
@@ -363,6 +369,7 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
         int m = v[12 + MAX_CELLS + i];
         out.meta[i] = (m >= 0 && m < 6) ? m : -1;
     }
+    if (n >= RULES_INTS) out.firstAttrMin = std::max(0, v[RULES_INTS_V1]);
     return true;
 }
 

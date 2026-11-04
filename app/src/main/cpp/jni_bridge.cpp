@@ -36,7 +36,7 @@ JNIEXPORT jintArray JNICALL Java_com_rcj811_tossolver_NativeSolver_solve(JNIEnv*
         tos::Rules ru;
         if (rules != nullptr) {
             jsize n = env->GetArrayLength(rules);
-            if (n >= tos::RULES_INTS) {
+            if (n >= tos::RULES_INTS_V1) {
                 std::vector<jint> rv(n);
                 env->GetIntArrayRegion(rules, 0, n, rv.data());
                 std::vector<int> iv(rv.begin(), rv.end());

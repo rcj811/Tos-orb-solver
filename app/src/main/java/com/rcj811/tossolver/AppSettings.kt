@@ -41,6 +41,11 @@ class AppSettings(context: Context) {
         get() = sp.getInt("dirs", 8)
         set(v) = sp.edit().putInt("dirs", v).apply()
 
+    /** 自動執行遇到沒記過的關卡時，自動長按王讀取技能說明 */
+    var autoReadBoss: Boolean
+        get() = sp.getBoolean("autoReadBoss", true)
+        set(v) = sp.edit().putBoolean("autoReadBoss", v).apply()
+
     /** 懸浮工作列位置（-1 = 預設：上方中央） */
     var barX: Int
         get() = sp.getInt("barX", -1)
@@ -180,6 +185,40 @@ class ColorStore(context: Context) {
     }
 
     val learnedSamples: Int get() = sp.getInt("learned", 0)
+
+    /** 符石狀態的學習原型 */
+    fun loadStates(): StateModel {
+        val m = StateModel()
+        runCatching {
+            val arr = org.json.JSONArray(sp.getString("states", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val d = o.getString("d").split(',').map { it.toFloat() }.toFloatArray()
+                if (d.size == StateModel.DIM) { m.protos.add(d); m.labels.add(o.getInt("s")) }
+            }
+        }
+        return m
+    }
+
+    fun saveStates(m: StateModel) {
+        val arr = org.json.JSONArray()
+        for (i in m.protos.indices) {
+            arr.put(org.json.JSONObject()
+                .put("s", m.labels[i])
+                .put("d", m.protos[i].joinToString(",") { String.format(java.util.Locale.US, "%.4f", it) }))
+        }
+        sp.edit().putString("states", arr.toString()).apply()
+    }
+
+    /** 各狀態學了幾個樣子（顯示用） */
+    fun stateSummary(): String {
+        val m = loadStates()
+        val parts = (1 until OrbState.COUNT).mapNotNull { st ->
+            val n = m.labels.count { it == st }
+            if (n > 0) "${OrbState.NAMES[st]} $n" else null
+        }
+        return if (parts.isEmpty()) "尚未學習特殊符石" else "已學特殊符石：" + parts.joinToString("、")
+    }
 
     fun reset() = sp.edit().clear().apply()
 }

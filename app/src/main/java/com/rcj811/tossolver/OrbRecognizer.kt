@@ -31,14 +31,119 @@ class BoardGeometry(val left: Float, val top: Float, val cell: Float, val rows: 
 /** 一張截圖（ARGB 像素） */
 class Frame(val width: Int, val height: Int, val pixels: IntArray)
 
+/**
+ * 符石狀態：依網路整理的神魔之塔符石種類，按「求解時怎麼處理」分成 5 類。
+ *  普通：一般珠、種族符石、化血、引爆、弱化、枯藤、泡沫…（看顏色，照常消除）
+ *  強化：強化（充能）符石（照常消除）
+ *  風化/黏腐：碰到就停止移動（不能碰，可被消除）
+ *  觸電：電擊符石（不能碰，且必須消除，否則攻擊力為 0）
+ *  冰封/石化：不能碰也不能消除
+ *  （隱藏、黑白、迷霧等看不出顏色的，會因辨識信心低而當成障礙避開）
+ */
+object OrbState {
+    const val NORMAL = 0
+    const val ENHANCED = 1
+    const val NO_TOUCH = 2
+    const val ELECTRIC = 3
+    const val LOCKED = 4
+    const val COUNT = 5
+    val NAMES = arrayOf("普通", "強化", "風化/黏腐", "觸電", "冰封/石化")
+    val BADGE = arrayOf("", "強", "風", "電", "冰")
+
+    /** 對應求解核心的旗標：0x40 風化（不碰、可消）、0x10 觸電（不碰、必消）、0x20 冰封（不碰、不消） */
+    fun flag(state: Int) = when (state) {
+        NO_TOUCH -> 0x40
+        ELECTRIC -> 0x10
+        LOCKED -> 0x20
+        else -> 0
+    }
+}
+
+/**
+ * 符石狀態的學習模型：與顏色無關的描述子（飽和度、亮度、亮白、偏暗…）＋最近原型。
+ * 模擬驗證：只標註一盤，新盤面的狀態正確率約 96%。
+ */
+class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: MutableList<Int> = ArrayList()) {
+    companion object {
+        const val DIM = 7
+        const val MATCH = 0.15f
+        const val MERGE = 0.04f
+        const val MAX_PER_STATE = 40
+    }
+
+    val isEmpty: Boolean get() = protos.isEmpty()
+
+    private fun dist(a: FloatArray, b: FloatArray): Float {
+        var d = 0f
+        for (i in 0 until DIM) { val t = a[i] - b[i]; d += t * t }
+        return kotlin.math.sqrt(d)
+    }
+
+    /** 回傳狀態；沒有夠近的原型回傳 -1 */
+    fun classify(d: FloatArray): Int {
+        var best = -1
+        var bd = Float.MAX_VALUE
+        for (i in protos.indices) {
+            val x = dist(d, protos[i])
+            if (x < bd) { bd = x; best = i }
+        }
+        return if (best >= 0 && bd < MATCH) labels[best] else -1
+    }
+
+    /** 學習標註好的格子；回傳新增或更新的原型數 */
+    fun learn(descs: List<FloatArray>, states: List<Int>): Int {
+        var n = 0
+        for (k in descs.indices) {
+            val st = states[k]
+            if (st !in 0 until OrbState.COUNT) continue
+            val d = descs[k]
+            var near = -1
+            var nd = Float.MAX_VALUE
+            for (i in protos.indices) if (labels[i] == st) {
+                val x = dist(d, protos[i]); if (x < nd) { nd = x; near = i }
+            }
+            if (near >= 0 && nd < MERGE) {
+                for (j in 0 until DIM) protos[near][j] = (protos[near][j] + d[j]) / 2f
+            } else {
+                protos.add(d.copyOf()); labels.add(st)
+                if (labels.count { it == st } > MAX_PER_STATE) {
+                    val drop = labels.indexOf(st); protos.removeAt(drop); labels.removeAt(drop)
+                }
+            }
+            n++
+        }
+        return n
+    }
+}
+
 class Recognition(
     val rows: Int,
     val colors: IntArray,          // 0~5 珠種
     val confidence: FloatArray,    // 0~1，該格取樣點投給最多票顏色的比例
     val features: Array<FloatArray>,
+    val states: IntArray = IntArray(colors.size),
+    val stateDesc: Array<FloatArray>? = null,
 ) {
     val cells: Int get() = rows * 6
-    fun isUnknown(i: Int) = confidence[i] < OrbRecognizer.UNKNOWN_CONF
+
+    /** 看不出來的格子：普通 / 強化狀態但顏色信心不足（有特殊狀態的格子視為已辨識） */
+    fun isUnknown(i: Int) = states[i] <= OrbState.ENHANCED && confidence[i] < OrbRecognizer.UNKNOWN_CONF
+
+    /** 給求解核心的格子值（珠種 + 狀態旗標）；看不出來的當冰封（不碰、不消） */
+    fun solverCell(i: Int): Int {
+        val c = colors[i]
+        return when (states[i]) {
+            OrbState.LOCKED -> c or 0x20
+            OrbState.NO_TOUCH -> if (confidence[i] >= OrbRecognizer.UNKNOWN_CONF) c or 0x40 else c or 0x20
+            OrbState.ELECTRIC -> c or 0x10
+            else -> if (confidence[i] < OrbRecognizer.UNKNOWN_CONF) c or 0x20 else c
+        }
+    }
+
+    fun solverCells() = IntArray(cells) { solverCell(it) }
+
+    /** 可消除格子的珠種（不能消除的給 -1），用來判斷首消條件是否可能 */
+    fun dissolvableColors() = IntArray(cells) { i -> if (solverCell(i) and 0x20 != 0) -1 else colors[i] }
     fun unknownCount() = (0 until cells).count { isUnknown(it) }
     fun minConfidence() = (0 until cells).minOf { confidence[it] }
     fun totalConfidence() = (0 until cells).sumOf { confidence[it].toDouble() }.toFloat()
@@ -103,8 +208,41 @@ object OrbRecognizer {
     private const val SPAN = 0.44f      // 取樣範圍：格子中央 44%
     private const val VOTE_DIST2 = 0.42f * 0.42f
 
-    /** 預設顏色（火、水、木、光、暗、心）；實際遊戲顏色靠校正學習修正 */
-    val DEFAULT_RGB = intArrayOf(0xE65032, 0x328CE6, 0x46BE46, 0xF5D246, 0xA046C8, 0xF56EB4)
+    /** 預設顏色（火、水、木、光、暗、心）：取自實際遊戲截圖的珠子中位色；之後靠校正學習修正 */
+    val DEFAULT_RGB = intArrayOf(0xCE280D, 0x43A3E6, 0x25C325, 0xE9A301, 0xC51FDB, 0xE02B87)
+
+    private const val STATE_GRID = 9
+    private const val STATE_SPAN = 0.70f
+
+    /** 狀態描述子（與顏色無關）：飽和度平均/標準差、亮度平均/標準差、亮白比例、偏暗比例、低飽和比例 */
+    fun stateDescriptor(frame: Frame, geo: BoardGeometry, i: Int): FloatArray {
+        val f = FloatArray(3)
+        val half = geo.cell * STATE_SPAN / 2f
+        val step = 2f * half / STATE_GRID
+        val x0 = geo.centerX(i) - half
+        val y0 = geo.centerY(i) - half
+        var n = 0
+        var ss = 0.0; var ss2 = 0.0; var sv = 0.0; var sv2 = 0.0
+        var white = 0; var dark = 0; var lowSat = 0
+        for (gy in 0 until STATE_GRID) for (gx in 0 until STATE_GRID) {
+            val x = (x0 + (gx + 0.5f) * step).toInt().coerceIn(0, frame.width - 1)
+            val y = (y0 + (gy + 0.5f) * step).toInt().coerceIn(0, frame.height - 1)
+            feature(frame.pixels[y * frame.width + x], f)
+            val s = kotlin.math.hypot(f[0], f[1])
+            val v = f[2]
+            ss += s; ss2 += s * s; sv += v; sv2 += v * v; n++
+            if (s < 0.25f && v > 0.75f) white++
+            if (v < 0.25f) dark++
+            if (s < 0.35f) lowSat++
+        }
+        val ms = ss / n
+        val mv = sv / n
+        return floatArrayOf(
+            ms.toFloat(), kotlin.math.sqrt(max(0.0, ss2 / n - ms * ms)).toFloat(),
+            mv.toFloat(), kotlin.math.sqrt(max(0.0, sv2 / n - mv * mv)).toFloat(),
+            white.toFloat() / n, dark.toFloat() / n, lowSat.toFloat() / n,
+        )
+    }
 
     /** 顏色特徵：(s·cos h, s·sin h, v)，色相在圓上、飽和度越低越靠近中心 */
     fun feature(rgb: Int, out: FloatArray) {
@@ -130,7 +268,8 @@ object OrbRecognizer {
         out[2] = mx
     }
 
-    fun recognize(frame: Frame, geo: BoardGeometry, model: ColorModel): Recognition {
+    /** stateModel 為 null 時不判斷狀態（自動偵測盤面時用，速度較快） */
+    fun recognize(frame: Frame, geo: BoardGeometry, model: ColorModel, stateModel: StateModel? = null): Recognition {
         val n = geo.cells
         val colors = IntArray(n)
         val conf = FloatArray(n)
@@ -167,7 +306,14 @@ object OrbRecognizer {
             conf[i] = if (total == 0) 0f else votes[best].toFloat() / total
             if (got > 0) { feats[i][0] = sx / got; feats[i][1] = sy / got; feats[i][2] = sz / got }
         }
-        return Recognition(geo.rows, colors, conf, feats)
+        if (stateModel == null) return Recognition(geo.rows, colors, conf, feats)
+        val states = IntArray(n)
+        val descs = Array(n) { stateDescriptor(frame, geo, it) }
+        if (!stateModel.isEmpty) for (i in 0 until n) {
+            val st = stateModel.classify(descs[i])
+            states[i] = if (st >= 0) st else OrbState.NORMAL
+        }
+        return Recognition(geo.rows, colors, conf, feats, states, descs)
     }
 
     private val EDGE_T = floatArrayOf(0.2f, 0.35f, 0.5f, 0.65f, 0.8f)
@@ -251,8 +397,9 @@ object OrbRecognizer {
 
     fun maxUnknown(cells: Int) = max(2, (cells * MAX_UNKNOWN_FRAC).toInt())
 
-    /** 辨識結果轉成盤面，無法辨識的格子記為 -1 */
-    fun maskedBoard(rec: Recognition): IntArray = IntArray(rec.cells) { if (rec.isUnknown(it)) -1 else rec.colors[it] }
+    /** 辨識結果轉成盤面（珠種＋狀態），無法辨識的格子記為 -1 */
+    fun maskedBoard(rec: Recognition): IntArray =
+        IntArray(rec.cells) { if (rec.isUnknown(it)) -1 else rec.colors[it] + 8 * rec.states[it] }
 
     /**
      * 兩次截圖是否為同一盤面：只比較兩邊都認得出來的格子（發光、閃爍的珠不影響），

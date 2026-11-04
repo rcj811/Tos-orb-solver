@@ -25,7 +25,7 @@ class StageRulesTest {
         r.toggle(2, StageRules.BLACK_HOLE)
         val v = r.toInts()
         assertEquals(StageRules.INTS, v.size)
-        assertEquals(108, v.size)                       // 與 tos_solver.h 的 RULES_INTS 相同
+        assertEquals(112, v.size)                       // 與 tos_solver.h 的 RULES_INTS 相同
         assertEquals(1, v[0])
         assertEquals(7, v[1]); assertEquals(4, v[2]); assertEquals(3, v[3])
         assertEquals(32, v[4]); assertEquals(7, v[5])
@@ -36,6 +36,23 @@ class StageRulesTest {
         assertEquals(StageRules.BLACK_HOLE, v[12 + 2])
         assertEquals(-1, v[12 + 48])                    // 變形魔球：無
         assertEquals(5, r.count(StageRules.SHIELD))
+    }
+
+    @Test
+    fun attrShieldEncodingAndFeasibility() {
+        val r = StageRules().apply { firstAttrMin = 8; antiMask = 1 shl 1 }   // 截圖的王：首消≥8組屬性、水連擊零化
+        val v = r.toInts()
+        assertEquals(8, v[108])
+        // 一般隨機盤：去掉水和心後只剩 4 色約 20 顆 → 最多 6 組，不可能 8 組
+        val board = IntArray(30) { it % 6 }
+        assertTrue(r.firstBatchImpossible(board) != null)
+        // 全部都是可用顏色（每色 ≥6 顆）→ 可能
+        val rich = IntArray(30) { intArrayOf(0, 2, 3, 4)[it % 4] }
+        assertEquals(null, StageRules().apply { firstAttrMin = 8 }.firstBatchImpossible(rich))
+        val back = StageRules().apply { deserialize(r.serialize()) }
+        assertEquals(8, back.firstAttrMin)
+        val merged = StageRules().apply { comboMin = 7; mergeFrom(r) }
+        assertEquals(7, merged.comboMin); assertEquals(8, merged.firstAttrMin); assertEquals(2, merged.antiMask)
     }
 
     @Test

@@ -9,7 +9,8 @@ package com.rcj811.tossolver
 class StageRules {
     companion object {
         const val MAX_CELLS = 48
-        const val INTS = 12 + MAX_CELLS * 2
+        const val INTS_V1 = 12 + MAX_CELLS * 2
+        const val INTS = INTS_V1 + 4          // [108] firstAttrMin
 
         const val SHIELD = 1        // 拼圖盾格
         const val CRACK = 2         // 裂痕（不能消除）
@@ -23,6 +24,7 @@ class StageRules {
     var comboMin = 0       // Combo 盾（≥X）
     var firstMin = 0       // 首消 Combo 盾（≥X）
     var firstExact = -1    // 固定首消 X Combo（-1 = 無）
+    var firstAttrMin = 0   // 首消 ≥X 組屬性符石盾（不含心珠）
     var antiMask = 0       // 首消不能消的珠種（bit = 珠種）
     var elemMask = 0       // 本回合必須消的珠種（多屬性盾）
     var sticky = false     // 黏手路徑：碰過的格不能再碰
@@ -31,11 +33,11 @@ class StageRules {
     var red = -1           // 紅漩渦：終點
     val cellFlags = IntArray(MAX_CELLS)
 
-    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && antiMask == 0 && elemMask == 0 &&
+    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && antiMask == 0 && elemMask == 0 &&
         !sticky && !firePath && green < 0 && red < 0 && cellFlags.all { it == 0 }
 
     fun clear() {
-        comboMin = 0; firstMin = 0; firstExact = -1; antiMask = 0; elemMask = 0
+        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; antiMask = 0; elemMask = 0
         sticky = false; firePath = false; green = -1; red = -1
         cellFlags.fill(0)
     }
@@ -61,6 +63,7 @@ class StageRules {
             v[12 + i] = cellFlags[i]
             v[12 + MAX_CELLS + i] = -1
         }
+        v[INTS_V1] = firstAttrMin
         return v
     }
 
@@ -73,6 +76,7 @@ class StageRules {
         if (comboMin > 0) parts.add("Combo≥$comboMin")
         if (firstMin > 0) parts.add("首消≥$firstMin")
         if (firstExact >= 0) parts.add("首消剛好 $firstExact")
+        if (firstAttrMin > 0) parts.add("首消屬性≥$firstAttrMin")
         if (elemMask != 0) parts.add("必消 ${maskText(elemMask)}")
         if (antiMask != 0) parts.add("首消禁 ${maskText(antiMask)}")
         if (count(NO_TOUCH) > 0) parts.add("燃燒 ${count(NO_TOUCH)}")
@@ -86,15 +90,49 @@ class StageRules {
     }
 
     fun copyFrom(o: StageRules) {
-        comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact
+        comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact; firstAttrMin = o.firstAttrMin
         antiMask = o.antiMask; elemMask = o.elemMask; sticky = o.sticky; firePath = o.firePath
         green = o.green; red = o.red
         o.cellFlags.copyInto(cellFlags)
     }
 
+    /** 把 o 中有設定的條件併入（OCR 讀到的條件 + 使用者畫的格子） */
+    fun mergeFrom(o: StageRules) {
+        if (o.comboMin > 0) comboMin = o.comboMin
+        if (o.firstMin > 0) firstMin = o.firstMin
+        if (o.firstExact >= 0) firstExact = o.firstExact
+        if (o.firstAttrMin > 0) firstAttrMin = o.firstAttrMin
+        antiMask = antiMask or o.antiMask
+        elemMask = elemMask or o.elemMask
+        sticky = sticky || o.sticky
+        firePath = firePath || o.firePath
+        if (o.green >= 0) green = o.green
+        if (o.red >= 0) red = o.red
+        for (i in 0 until MAX_CELLS) cellFlags[i] = cellFlags[i] or o.cellFlags[i]
+    }
+
+    /**
+     * 首消條件在這個盤面「數學上」是否可能達成（首消不受天降影響，所以上限是精確的）。
+     * colors：每格珠種，不能消除的格子給 -1。回傳 null = 可能；否則回傳原因。
+     */
+    fun firstBatchImpossible(colors: IntArray): String? {
+        val cnt = IntArray(6)
+        for (c in colors) if (c in 0..5 && (antiMask shr c and 1) == 0) cnt[c]++
+        val ubAll = (0 until 6).sumOf { cnt[it] / 3 }
+        val ubAttr = (0 until 5).sumOf { cnt[it] / 3 }
+        val ban = if (antiMask != 0) "（首消不能消 ${maskText(antiMask)}）" else ""
+        if (firstAttrMin > 0 && ubAttr < firstAttrMin)
+            return "首消要 ≥$firstAttrMin 組屬性符石$ban，這盤最多只能 $ubAttr 組"
+        if (firstMin > 0 && ubAll < firstMin)
+            return "首消要 ≥$firstMin combo$ban，這盤最多只能 $ubAll combo"
+        if (firstExact > 0 && ubAll < firstExact)
+            return "首消要剛好 $firstExact combo$ban，這盤最多只能 $ubAll combo"
+        return null
+    }
+
     /** 簡單文字格式（存檔用）：key=value;... */
     fun serialize(): String = listOf(
-        "c=$comboMin", "f=$firstMin", "x=$firstExact", "a=$antiMask", "e=$elemMask",
+        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "a=$antiMask", "e=$elemMask",
         "s=${if (sticky) 1 else 0}", "p=${if (firePath) 1 else 0}", "g=$green", "r=$red",
         "cells=" + cellFlags.joinToString(","),
     ).joinToString(";")
@@ -110,6 +148,7 @@ class StageRules {
                 "c" -> comboMin = v.toIntOrNull() ?: 0
                 "f" -> firstMin = v.toIntOrNull() ?: 0
                 "x" -> firstExact = v.toIntOrNull() ?: -1
+                "fa" -> firstAttrMin = v.toIntOrNull() ?: 0
                 "a" -> antiMask = v.toIntOrNull() ?: 0
                 "e" -> elemMask = v.toIntOrNull() ?: 0
                 "s" -> sticky = v == "1"

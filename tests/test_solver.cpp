@@ -110,6 +110,10 @@ int main() {
             {"黑洞（不可停）", 0.90, [](std::vector<int>& v) {
                  for (int i : {2, 14, 25}) v[12 + i] |= CF_BLACK_HOLE; }},
             {"綠紅漩渦", 0.90, [](std::vector<int>& v) { v[10] = 0; v[11] = 29; }},
+            {"首消 ≥5 組屬性符石（不含心）", 0.85, [](std::vector<int>& v) { v[RULES_INTS_V1] = 5; }},
+            {"首消 ≥6 組屬性符石（不含心）", 0.50, [](std::vector<int>& v) { v[RULES_INTS_V1] = 6; }},
+            {"首消 ≥8 組屬性符石＋水連擊零化（截圖的王）", 0.0, [](std::vector<int>& v) {
+                 v[RULES_INTS_V1] = 8; v[4] = 1 << WATER; }},
             {"燃燒＋黏手路徑", 0.0, [](std::vector<int>& v) {
                  v[6] = 1; for (int i : {9, 20}) v[12 + i] |= CF_NO_TOUCH; }},
         };
@@ -154,6 +158,14 @@ int main() {
             seen[p] = true;
             for (int d : s.dirs) { p += DY[d] * 6 + DX[d]; if (seen[p]) dup = true; seen[p] = true; }
             CHECK(s.found && !dup, "黏手路徑：不重複經過同一格");
+        }
+        // 舊格式（長度 108，沒有 firstAttrMin）仍可解碼
+        {
+            std::vector<int> v = blank();
+            v.resize(RULES_INTS_V1);
+            v[1] = 7;
+            Rules ru;
+            CHECK(rulesFromInts(v.data(), (int)v.size(), ru) && ru.comboMin == 7 && ru.firstAttrMin == 0, "舊格式規則可解碼");
         }
         std::vector<int> bad(5, 0);
         Rules ru;

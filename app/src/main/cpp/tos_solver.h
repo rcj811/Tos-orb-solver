@@ -39,6 +39,7 @@ struct Rules {
     int comboMin = 0;                // Combo 盾（≥X）
     int firstMin = 0;                // 首消 Combo 盾（≥X）
     int firstExact = -1;             // 固定 X Combo 盾（首消剛好 X）
+    int firstAttrMin = 0;            // 首消 ≥X 組屬性符石盾（首消中不含心珠的 combo 數）
     int antiMask = 0;                // 反屬性盾：首消不可消除這些珠種（bit = 珠種）
     int elemMask = 0;                // 多屬性盾：本回合須消除這些珠種
     bool shield[MAX_CELLS] = {};     // 拼圖盾格
@@ -50,7 +51,9 @@ struct Rules {
 //  [0] 版本(1) [1] comboMin [2] firstMin [3] firstExact(-1=無) [4] antiMask [5] elemMask
 //  [6] stickyPath [7] firePath [8] fireSize [9] maxHurt [10] green [11] red
 //  [12 .. 12+48) 每格旗標  [60 .. 60+48) 每格變形魔球珠種（-1=無）
-constexpr int RULES_INTS = 12 + MAX_CELLS * 2;
+//  [108] firstAttrMin  [109..111] 保留（長度 108 的舊格式仍可讀）
+constexpr int RULES_INTS_V1 = 12 + MAX_CELLS * 2;
+constexpr int RULES_INTS = RULES_INTS_V1 + 4;
 enum CellFlag { CF_SHIELD = 1, CF_CRACK = 2, CF_NO_TOUCH = 4, CF_FLAME_END = 8, CF_BLACK_HOLE = 16 };
 
 // 解碼；長度不足或版本不符回傳 false（out 維持一般盤）

@@ -58,6 +58,8 @@ class CalibrationView(context: Context) : View(context) {
     val labels = IntArray(48) { -1 }
     val conf = FloatArray(48)
     val edited = BooleanArray(48)
+    val states = IntArray(48)
+    val stateEdited = BooleanArray(48)
     var onGeometryChanged: (() -> Unit)? = null
     var onLabelsChanged: (() -> Unit)? = null
 
@@ -81,7 +83,7 @@ class CalibrationView(context: Context) : View(context) {
     private var downY = 0f
     private var startGeo = geo
 
-    fun resetLabels() { labels.fill(-1); conf.fill(0f); edited.fill(false) }
+    fun resetLabels() { labels.fill(-1); conf.fill(0f); edited.fill(false); states.fill(0); stateEdited.fill(false) }
 
     override fun onDraw(canvas: Canvas) {
         getLocationOnScreen(off)
@@ -105,7 +107,23 @@ class CalibrationView(context: Context) : View(context) {
                 text.textSize = s * 0.2f
                 canvas.drawText(BoardView.ORB_NAMES[k], cx, cy + s * 0.07f, text)
             }
-            if (!edited[i] && conf[i] < OrbRecognizer.UNKNOWN_CONF) {
+            val st = states[i]
+            if (st != OrbState.NORMAL) {   // 狀態標籤（強／風／電／冰）
+                fill.color = when (st) {
+                    OrbState.ENHANCED -> Color.parseColor("#FFB300")
+                    OrbState.NO_TOUCH -> Color.parseColor("#8D6E63")
+                    OrbState.ELECTRIC -> Color.parseColor("#FDD835")
+                    else -> Color.parseColor("#4FC3F7")
+                }
+                canvas.drawCircle(x + s * 0.76f, y + s * 0.76f, s * 0.17f, fill)
+                ring.color = if (stateEdited[i]) Color.YELLOW else Color.WHITE
+                canvas.drawCircle(x + s * 0.76f, y + s * 0.76f, s * 0.17f, ring)
+                text.textSize = s * 0.2f
+                text.color = Color.BLACK
+                canvas.drawText(OrbState.BADGE[st], x + s * 0.76f, y + s * 0.83f, text)
+                text.color = Color.WHITE
+            }
+            if (!edited[i] && !stateEdited[i] && st <= OrbState.ENHANCED && conf[i] < OrbRecognizer.UNKNOWN_CONF) {
                 fill.color = Color.parseColor("#D50000")
                 canvas.drawCircle(x + s * 0.76f, y + s * 0.24f, s * 0.14f, fill)
                 text.textSize = s * 0.22f
@@ -144,9 +162,16 @@ class CalibrationView(context: Context) : View(context) {
                 if (mode == 1) {
                     val i = geo.cellAt(x, y)
                     if (i >= 0) {
-                        labels[i] = if (labels[i] !in 0..5) 0 else (labels[i] + 1) % 6
-                        edited[i] = true
-                        conf[i] = 1f
+                        if (e.eventTime - e.downTime >= 450) {
+                            // 長按：切換符石狀態（普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化）
+                            states[i] = (states[i] + 1) % OrbState.COUNT
+                            stateEdited[i] = true
+                        } else {
+                            // 點一下：切換顏色
+                            labels[i] = if (labels[i] !in 0..5) 0 else (labels[i] + 1) % 6
+                            edited[i] = true
+                            conf[i] = 1f
+                        }
                         invalidate()
                         onLabelsChanged?.invoke()
                     }

@@ -33,6 +33,7 @@ class MainActivity : Activity() {
     private lateinit var autoStatus: TextView
     private lateinit var enableBtn: Button
     private lateinit var modeBtn: Button
+    private lateinit var readBossBtn: Button
     private lateinit var rulesText: TextView
     private lateinit var undoRuleBtn: Button
     private lateinit var clearRulesBtn: Button
@@ -82,7 +83,8 @@ class MainActivity : Activity() {
         root.addView(row(enableBtn, button("允許受限設定") { openAppDetails() }))
 
         modeBtn = button("") { settings.autoDrag = !settings.autoDrag; refreshAuto() }
-        root.addView(modeBtn)
+        readBossBtn = button("") { settings.autoReadBoss = !settings.autoReadBoss; refreshAuto() }
+        root.addView(row(modeBtn, readBossBtn))
 
         stepBtn = button("") { settings.stepMs = next(AppSettings.STEP_CHOICES, settings.stepMs); refreshAuto() }
         timeBtn = button("") { settings.timeLimitSec = next(AppSettings.TIME_CHOICES, settings.timeLimitSec); refreshAuto() }
@@ -126,6 +128,9 @@ class MainActivity : Activity() {
                 "3. 進入戰鬥，珠子靜止時按「校」→「自動偵測」對齊盤面，顏色不對就點格子修正 →「儲存並學習」。\n" +
                 "4. 教它過關卡（使用者設定）：在結算、再次挑戰、選戰友、出戰等畫面，按「＋」再點一下要按的按鈕，" +
                 "然後自己按那個按鈕進到下一個畫面，重複到回到戰鬥為止。\n" +
+                "4-1. 特殊符石（強化、風化/黏腐、觸電、冰封/石化）：在校正畫面「長按」格子標記狀態，儲存後就會自動辨識。\n" +
+                "4-2. 讀王的破解條件：長按王打開技能視窗，再按工作列「關」，會自動讀文字並設定轉珠條件；" +
+                "自動執行遇到沒記過的關卡，也會自己長按王去讀（可在上方關閉）。\n" +
                 "5. 有特殊機制的關卡（拼圖盾、Combo 盾、首消盾、多屬性盾、燃燒、黑洞、火焰區、漩渦、黏手路徑…）：" +
                 "第一次遇到時按工作列「關」，選筆刷後點盤面格子畫出拼圖盾形狀等，按「完成」。" +
                 "程式會記住這關的敵人畫面，之後遇到同一關會自動判斷並套用（「關」按鈕變黃）；沒記過的關卡照一般盤打。\n" +
@@ -282,12 +287,14 @@ class MainActivity : Activity() {
         autoStatus.setTextColor(Color.parseColor(if (on && geo) "#69F0AE" else "#FFD54F"))
         enableBtn.text = if (on) "無障礙設定（已開啟）" else "開啟無障礙設定"
         modeBtn.text = if (settings.autoDrag) "模式：自動拖曳" else "模式：只顯示路徑"
+        readBossBtn.text = if (settings.autoReadBoss) "自動讀王技能：開" else "自動讀王技能：關"
         stepBtn.text = "每步 ${settings.stepMs} ms"
         timeBtn.text = "轉珠時間 ${settings.timeLimitSec} 秒"
         qualityBtn.text = if (settings.beam == 450) "品質：標準" else "品質：高（較慢）"
         dirsBtn.text = "${settings.dirs} 方向"
         val learned = colorStore.learnedSamples
-        resetColorBtn.text = if (learned > 0) "重設顏色學習（已學 $learned 格）" else "顏色學習：尚未校正"
+        resetColorBtn.text = (if (learned > 0) "重設顏色與符石學習（已學 $learned 格）" else "顏色學習：尚未校正") +
+            "\n" + colorStore.stateSummary()
         resetColorBtn.isEnabled = learned > 0
         val nRules = ruleStore.count
         rulesText.text = (if (nRules == 0) "點擊規則：尚未設定（▶ 自動執行只會轉珠，不會自動過關卡）"
