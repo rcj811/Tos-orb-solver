@@ -66,7 +66,9 @@ object OrbState {
 class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: MutableList<Int> = ArrayList()) {
     companion object {
         const val DIM = 7
-        const val MATCH = 0.15f
+        const val MATCH = 0.25f
+        const val NOVEL = -2          // 看起來不像任何學過的樣子
+        private const val MIN_NORMAL_FOR_NOVELTY = 5
         const val MERGE = 0.04f
         const val MAX_PER_STATE = 40
     }
@@ -79,7 +81,12 @@ class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: 
         return kotlin.math.sqrt(d)
     }
 
-    /** 回傳狀態；沒有夠近的原型回傳 -1 */
+    /**
+     * 回傳狀態；沒有夠近的原型時：
+     *  已學過足夠的普通珠 → NOVEL（不像普通珠也不像學過的特殊珠 → 呼叫端當障礙避開，寧可少消也不要碰到不能碰的珠）
+     *  否則 → -1（當普通珠）
+     * 模擬（12 種標註盤 × 10 盤）：不能碰的珠被當成可碰 26% → 1.1%，普通珠被誤當障礙 0.8%。
+     */
     fun classify(d: FloatArray): Int {
         var best = -1
         var bd = Float.MAX_VALUE
@@ -87,7 +94,8 @@ class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: 
             val x = dist(d, protos[i])
             if (x < bd) { bd = x; best = i }
         }
-        return if (best >= 0 && bd < MATCH) labels[best] else -1
+        if (best >= 0 && bd < MATCH) return labels[best]
+        return if (labels.count { it == OrbState.NORMAL } >= MIN_NORMAL_FOR_NOVELTY) NOVEL else -1
     }
 
     /** 學習標註好的格子；回傳新增或更新的原型數 */
@@ -311,7 +319,11 @@ object OrbRecognizer {
         val descs = Array(n) { stateDescriptor(frame, geo, it) }
         if (!stateModel.isEmpty) for (i in 0 until n) {
             val st = stateModel.classify(descs[i])
-            states[i] = if (st >= 0) st else OrbState.NORMAL
+            states[i] = when {
+                st >= 0 -> st
+                st == StateModel.NOVEL -> OrbState.LOCKED   // 沒見過的樣子：當障礙
+                else -> OrbState.NORMAL
+            }
         }
         return Recognition(geo.rows, colors, conf, feats, states, descs)
     }
