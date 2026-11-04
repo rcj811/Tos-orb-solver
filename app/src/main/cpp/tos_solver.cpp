@@ -18,7 +18,6 @@ namespace {
 const int REV[8] = {2, 3, 0, 1, 6, 7, 4, 5};
 const int C = COLS;
 const int MAXN = MAX_CELLS;
-const uint8_t F_NOTOUCH = F_ELEC | F_FROZEN | F_WEATHER;
 inline int col(uint8_t v) { return v & 7; }
 
 struct Board { uint8_t c[MAXN]; };
@@ -35,7 +34,7 @@ int findCombos(const Board& b, bool mark[MAXN], int* typeMask = nullptr, int* at
     const int R = X.R, N = X.N;
     const Rules& RU = X.ru;
     std::memset(mark, 0, MAXN);
-    auto ok = [&](int i) { return b.c[i] != EMPTY && !(b.c[i] & F_FROZEN) && !RU.crack[i]; };
+    auto ok = [&](int i) { return b.c[i] != EMPTY && !(b.c[i] & F_NODISSOLVE) && !RU.crack[i]; };
     for (int y = 0; y < R; y++)
         for (int x = 0; x + 2 < C; x++) {
             int i = y * C + x;
@@ -91,7 +90,7 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 
 struct Info {
     int combos = 0, first = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
-    int elecLeft = 0, weatherCleared = 0, shieldCover = 0;
+    int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0;
     bool shieldBroken = false;
     Board after;
 };
@@ -111,7 +110,11 @@ Info resolve(Board b) {
         if (!c) break;
         int orbs = 0;
         for (int i = 0; i < N; i++)
-            if (mark[i]) { orbs++; if (b.c[i] & F_WEATHER) in.weatherCleared++; }
+            if (mark[i]) {
+                orbs++;
+                if (b.c[i] & F_PREFER) in.weatherCleared++;
+                if (b.c[i] & F_AVOID) in.avoidCleared++;
+            }
         if (round == 0) {
             in.first = c;
             in.firstAttr = attr;
@@ -126,7 +129,7 @@ Info resolve(Board b) {
         in.cleared += orbs;
         removeAndDrop(b, mark);
     }
-    for (int i = 0; i < N; i++) if (b.c[i] != EMPTY && (b.c[i] & F_ELEC)) in.elecLeft++;
+    for (int i = 0; i < N; i++) if (b.c[i] != EMPTY && (b.c[i] & F_MUST)) in.elecLeft++;
     in.after = b;
     return in;
 }
@@ -200,6 +203,7 @@ void score(State& s) {
     for (int i = 0; i < NUM_FEATURES; i++) w += cfg.weights[i] * f[i];
     w -= in.elecLeft * 1500;
     w += in.weatherCleared * 200;
+    w -= in.avoidCleared * 500;   // 盡量不要消除：兩顆約抵一個 combo
     if (RU.comboMin && in.combos < RU.comboMin) w -= (RU.comboMin - in.combos) * 800;
     if (RU.firstMin && in.first < RU.firstMin) w -= (RU.firstMin - in.first) * 800;
     if (RU.firstMin) w += in.first * 400;

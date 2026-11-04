@@ -46,16 +46,72 @@ object OrbState {
     const val NO_TOUCH = 2
     const val ELECTRIC = 3
     const val LOCKED = 4
-    const val COUNT = 5
-    val NAMES = arrayOf("普通", "強化", "風化/黏腐", "觸電", "冰封/石化")
-    val BADGE = arrayOf("", "強", "風", "電", "冰")
+}
 
-    /** 對應求解核心的旗標：0x40 風化（不碰、可消）、0x10 觸電（不碰、必消）、0x20 冰封（不碰、不消） */
-    fun flag(state: Int) = when (state) {
-        NO_TOUCH -> 0x40
-        ELECTRIC -> 0x10
-        LOCKED -> 0x20
-        else -> 0
+/**
+ * 符石類別：內建 5 種＋使用者自訂。每種類別有兩項規則：能不能碰、消除方式。
+ * 旗標需與 tos_solver.h 一致：0x08 盡量消除、0x10 必須消除、0x20 不能消除、0x40 不能碰、0x80 盡量不要消除。
+ */
+class OrbType(
+    val id: Int,
+    val name: String,
+    val noTouch: Boolean,
+    val dissolve: Int,
+    val builtin: Boolean = false,
+    badgeText: String? = null,
+) {
+    companion object {
+        const val D_NORMAL = 0
+        const val D_MUST = 1
+        const val D_PREFER = 2
+        const val D_AVOID = 3
+        const val D_CANNOT = 4
+        val DISSOLVE_NAMES = arrayOf("照常消除", "必須消除", "盡量消除", "盡量不要消除", "不能消除")
+    }
+
+    val badge: String = badgeText ?: name.take(1)
+
+    /** 消除方式是「不能消除」時，顏色不重要 */
+    val colorMatters: Boolean get() = dissolve != D_CANNOT
+
+    val flags: Int
+        get() = (if (noTouch) 0x40 else 0) or when (dissolve) {
+            D_MUST -> 0x10
+            D_PREFER -> 0x08
+            D_AVOID -> 0x80
+            D_CANNOT -> 0x20
+            else -> 0
+        }
+
+    fun describe(): String = (if (noTouch) "不能碰" else "可以碰") + "・" + DISSOLVE_NAMES[dissolve]
+}
+
+object OrbTypes {
+    const val FIRST_CUSTOM_ID = 10
+    val BUILTIN = listOf(
+        OrbType(OrbState.NORMAL, "普通", false, OrbType.D_NORMAL, true, ""),
+        OrbType(OrbState.ENHANCED, "強化", false, OrbType.D_NORMAL, true, "強"),
+        OrbType(OrbState.NO_TOUCH, "風化/黏腐", true, OrbType.D_PREFER, true, "風"),
+        OrbType(OrbState.ELECTRIC, "觸電", true, OrbType.D_MUST, true, "電"),
+        OrbType(OrbState.LOCKED, "冰封/石化", true, OrbType.D_CANNOT, true, "冰"),
+    )
+
+    /** 使用者自訂的類別（App 啟動 / 服務連線時從儲存載入） */
+    @Volatile
+    var custom: List<OrbType> = emptyList()
+
+    fun all(): List<OrbType> = BUILTIN + custom
+
+    /** 找不到（例如已刪除的自訂類別）時當障礙：不能碰、不能消除 */
+    fun get(id: Int): OrbType = BUILTIN.firstOrNull { it.id == id } ?: custom.firstOrNull { it.id == id } ?: BUILTIN[OrbState.LOCKED]
+
+    fun exists(id: Int) = all().any { it.id == id }
+
+    /** 校正畫面長按時的下一個類別 */
+    fun next(id: Int): Int {
+        val a = all()
+        val i = a.indexOfFirst { it.id == id }
+        return a[(i + 1) % a.size].id
     }
 }
 
@@ -103,7 +159,7 @@ class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: 
         var n = 0
         for (k in descs.indices) {
             val st = states[k]
-            if (st !in 0 until OrbState.COUNT) continue
+            if (!OrbTypes.exists(st)) continue
             val d = descs[k]
             var near = -1
             var nd = Float.MAX_VALUE
@@ -137,15 +193,15 @@ class Recognition(
     /** 看不出來的格子：普通 / 強化狀態但顏色信心不足（有特殊狀態的格子視為已辨識） */
     fun isUnknown(i: Int) = states[i] <= OrbState.ENHANCED && confidence[i] < OrbRecognizer.UNKNOWN_CONF
 
-    /** 給求解核心的格子值（珠種 + 狀態旗標）；看不出來的當冰封（不碰、不消） */
+    /**
+     * 給求解核心的格子值（珠種 + 該類別的規則旗標）。
+     * 顏色重要的類別但顏色看不出來 → 當障礙（不能碰、不能消除，0x60）
+     */
     fun solverCell(i: Int): Int {
         val c = colors[i]
-        return when (states[i]) {
-            OrbState.LOCKED -> c or 0x20
-            OrbState.NO_TOUCH -> if (confidence[i] >= OrbRecognizer.UNKNOWN_CONF) c or 0x40 else c or 0x20
-            OrbState.ELECTRIC -> c or 0x10
-            else -> if (confidence[i] < OrbRecognizer.UNKNOWN_CONF) c or 0x20 else c
-        }
+        val t = OrbTypes.get(states[i])
+        if (t.colorMatters && confidence[i] < OrbRecognizer.UNKNOWN_CONF) return c or 0x60
+        return c or t.flags
     }
 
     fun solverCells() = IntArray(cells) { solverCell(it) }
@@ -184,6 +240,21 @@ class ColorModel(val centroids: Array<FloatArray>, val weights: FloatArray) {
         }
         if (dist2 != null) dist2[0] = bd
         return best
+    }
+
+    /**
+     * 自我學習（自動執行中）：用非常有把握的普通珠，讓顏色中心慢慢貼近實際畫面。
+     * rate 很小，單一盤面誤判不會把顏色帶偏。回傳採用的樣本數。
+     */
+    fun learnOnline(features: List<FloatArray>, labels: List<Int>, rate: Float = 0.01f): Int {
+        var n = 0
+        for (i in features.indices) {
+            val k = labels[i]
+            if (k !in 0..5) continue
+            for (j in 0..2) centroids[k][j] += rate * (features[i][j] - centroids[k][j])
+            n++
+        }
+        return n
     }
 
     /** 以標註好的格子特徵更新顏色中心；回傳採用的樣本數 */

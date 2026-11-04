@@ -3,6 +3,7 @@
 #include "tos_solver.h"
 
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <random>
 #include <vector>
@@ -170,6 +171,53 @@ int main() {
         std::vector<int> bad(5, 0);
         Rules ru;
         CHECK(!rulesFromInts(bad.data(), (int)bad.size(), ru) && ru.shieldN == 0, "長度不足的規則視為一般盤");
+    }
+
+    // 可組合的符石規則（自訂符石類別）
+    {
+        Config c5;
+        // 必須消除但可以碰（例：化血）：解法要把它消掉
+        std::mt19937 r3(91);
+        int okMust = 0, okAvoid = 0, okCannot = 0, n = 40, legal = 0;
+        for (int k = 0; k < n; k++) {
+            do { for (int i = 0; i < 30; i++) b[i] = r3() % 6; } while (countCombos(b, 5) > 0);
+            uint8_t bm[MAX_CELLS]; std::memcpy(bm, b, 30); bm[12] |= F_MUST;
+            Solution s1 = solve(bm, c5); Outcome o1 = replay(bm, s1.start, s1.dirs, c5);
+            if (o1.legal) legal++;
+            if (s1.goalsMet) okMust++;
+            // 盡量不要消除：標 3 顆，最佳解消掉的數量應該很少
+            uint8_t ba[MAX_CELLS]; std::memcpy(ba, b, 30); ba[3] |= F_AVOID; ba[16] |= F_AVOID; ba[27] |= F_AVOID;
+            Solution s2 = solve(ba, c5);
+            uint8_t after[MAX_CELLS]; std::memcpy(after, ba, 30);
+            int p = s2.start;
+            for (int d : s2.dirs) { int q = p + DY[d] * 6 + DX[d]; std::swap(after[p], after[q]); p = q; }
+            // 只看第一輪有沒有消到 F_AVOID 的珠（近似）
+            Rules none; (void)none;
+            int avoidLeft = 0; for (int i = 0; i < 30; i++) if (after[i] & F_AVOID) avoidLeft++;
+            (void)avoidLeft;
+            Outcome o2 = replay(ba, s2.start, s2.dirs, c5);
+            if (o2.legal) okAvoid++;
+            // 不能消除（可以碰）：標記的格子不會被算成 combo
+            uint8_t bc[MAX_CELLS]; std::memcpy(bc, b, 30);
+            for (int i = 0; i < 30; i += 5) bc[i] |= F_NODISSOLVE;
+            Solution s3 = solve(bc, c5); Outcome o3 = replay(bc, s3.start, s3.dirs, c5);
+            if (o3.legal && o3.combos == s3.combos) okCannot++;
+        }
+        std::printf("自訂規則：必須消除達成 %d / %d，路徑合法 %d / %d\n", okMust, n, legal, n);
+        CHECK(legal == n && okMust >= n * 0.8, "必須消除（可碰）：路徑合法、大多能消掉");
+        CHECK(okAvoid == n, "盡量不要消除：路徑合法");
+        CHECK(okCannot == n, "不能消除（可碰）：路徑合法、結算一致");
+        // 不能消除的格子確實不參與 combo
+        parse("000123" "123450" "234501" "345012" "450123", b, 30);
+        b[1] |= F_NODISSOLVE;
+        CHECK(countCombos(b, 5) == 0, "不能消除的珠不參與三連");
+        // 可以碰：F_NODISSOLVE 單獨使用時，路徑可以經過
+        parse("012345" "123450" "234501" "345012" "450123", b, 30);
+        b[1] |= F_NODISSOLVE;
+        Outcome ot = replay(b, 0, {0}, c5);
+        CHECK(ot.legal, "只有「不能消除」時仍可碰觸");
+        b[1] = (b[1] & 7) | F_NOTOUCH;
+        CHECK(!replay(b, 0, {0}, c5).legal, "「不能碰」時路徑不能經過");
     }
 
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);

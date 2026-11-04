@@ -40,6 +40,8 @@ class MainActivity : Activity() {
     private lateinit var stepBtn: Button
     private lateinit var timeBtn: Button
     private lateinit var resetColorBtn: Button
+    private lateinit var typesText: TextView
+    private lateinit var delTypeBtn: Button
 
     // 手動模式
     private lateinit var board: BoardView
@@ -63,6 +65,7 @@ class MainActivity : Activity() {
         settings = AppSettings(this)
         colorStore = ColorStore(this)
         ruleStore = RuleStore(this)
+        OrbTypeStore(this).apply()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -70,7 +73,8 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor("#1C2329"))
         }
 
-        root.addView(title("神魔之塔自動轉珠", 22f))
+        root.addView(title("自轉珠", 24f))
+        root.addView(note("神魔之塔自動轉珠").apply { setPadding(0, 0, 0, 0) })
 
         // ---------- 自動轉珠 ----------
         autoStatus = TextView(this).apply {
@@ -101,6 +105,16 @@ class MainActivity : Activity() {
         }
         root.addView(resetColorBtn)
 
+        // 符石類別（內建＋自訂）
+        typesText = note("")
+        root.addView(typesText)
+        delTypeBtn = button("刪除自訂類別") {
+            OrbTypeDialog.showDelete(this) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
+        }
+        root.addView(row(button("＋新增符石類別") {
+            OrbTypeDialog.showAdd(this, overlay = false) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
+        }, delTypeBtn))
+
         rulesText = note("")
         root.addView(rulesText)
         undoRuleBtn = button("刪除最後一條規則") {
@@ -122,13 +136,14 @@ class MainActivity : Activity() {
 
         root.addView(note(
             "開啟步驟（只需一次）：\n" +
-                "1. 按「開啟無障礙設定」→ 已下載的應用程式 →「轉珠助手」→ 開啟。\n" +
+                "1. 按「開啟無障礙設定」→ 已下載的應用程式 →「自轉珠」→ 開啟。\n" +
                 "　若開關是灰色、顯示「受限設定」：先按「允許受限設定」→ 右上角 ⋮ →「允許受限設定」，再回去開啟。\n" +
                 "2. 畫面上方會出現橫向懸浮工作列：⠿ 拖曳／收合、▶ 自動執行、轉 轉一回合、＋ 新增點擊規則、校 校正。\n" +
                 "3. 進入戰鬥，珠子靜止時按「校」→「自動偵測」對齊盤面，顏色不對就點格子修正 →「儲存並學習」。\n" +
                 "4. 教它過關卡（使用者設定）：在結算、再次挑戰、選戰友、出戰等畫面，按「＋」再點一下要按的按鈕，" +
                 "然後自己按那個按鈕進到下一個畫面，重複到回到戰鬥為止。\n" +
-                "4-1. 特殊符石（強化、風化/黏腐、觸電、冰封/石化）：在校正畫面「長按」格子標記狀態，儲存後就會自動辨識。\n" +
+                "4-1. 特殊符石（強化、風化/黏腐、觸電、冰封/石化）：在校正畫面「長按」格子標記類別，儲存後就會自動辨識。" +
+                "遇到程式不認識的珠子，按「＋新增符石類別」自己定義（能不能碰、必須消除／不能消除…），再到校正畫面標記。\n" +
                 "4-2. 讀王的破解條件：長按王打開技能視窗，再按工作列「關」，會自動讀文字並設定轉珠條件；" +
                 "自動執行遇到沒記過的關卡，也會自己長按王去讀（可在上方關閉）。\n" +
                 "5. 有特殊機制的關卡（拼圖盾、Combo 盾、首消盾、多屬性盾、燃燒、黑洞、火焰區、漩渦、黏手路徑…）：" +
@@ -137,7 +152,7 @@ class MainActivity : Activity() {
                 "　過不了才交給你：套用機制後連續 3 回合破不了、或看到「停止畫面」（用「＋」切到「看到就停止」錄製，例如戰敗、體力不足），會停止並震動提醒。\n" +
                 "6. 按 ▶ 自動執行：戰鬥中自動轉珠，戰鬥外看到記住的畫面就自動點，可一直重複刷關。按 ■ 停止。\n" +
                 "　畫面卡住（同一個按鈕連點 6 次）或 3 分鐘沒事做會自動停止。\n" +
-                "7. 工作列 ✕ 連按兩下可關閉轉珠助手；要再使用時打開本 App，會自動詢問是否重新開啟。\n\n" +
+                "7. 工作列 ✕ 連按兩下可關閉自轉珠；要再使用時打開本 App，會自動詢問是否重新開啟。\n\n" +
                 "小提醒：遊戲沒跟上拖曳就把「每步」調慢；斜轉常失敗就改成 4 方向。體力用完的畫面不要錄規則，免得一直點。\n" +
                 "自動操作違反遊戲使用條款，有被封帳號的風險，請自行斟酌。"
         ))
@@ -219,7 +234,7 @@ class MainActivity : Activity() {
         if (on) {
             if (!wasEnabled && wentToSettings) {
                 wentToSettings = false
-                showDialog("轉珠助手已開啟 ✓",
+                showDialog("自轉珠已開啟 ✓",
                     "畫面上方會出現橫向懸浮工作列（可拖曳到你習慣的位置）。\n\n下一步：進入遊戲戰鬥，珠子靜止時按工作列的「校」→「自動偵測」對齊盤面 →「儲存並學習」。之後按 ▶ 就會自動執行。",
                     "知道了", {}, null, null)
             }
@@ -230,8 +245,8 @@ class MainActivity : Activity() {
         if (wentToSettings) {
             // 去過設定卻沒開成：多半是 Android 13 以上的「受限設定」
             wentToSettings = false
-            showDialog("還沒開啟轉珠助手",
-                "如果「轉珠助手」的開關是灰色、或跳出「受限設定」：\n\n" +
+            showDialog("還沒開啟自轉珠",
+                "如果「自轉珠」的開關是灰色、或跳出「受限設定」：\n\n" +
                     "1. 按下方「允許受限設定」，會打開本 App 的應用程式資訊\n" +
                     "2. 點右上角 ⋮ →「允許受限設定」（需要輸入手機密碼）\n" +
                     "3. 回到 App，再按一次「前往開啟」\n\n" +
@@ -242,11 +257,11 @@ class MainActivity : Activity() {
         }
         if (askedThisLaunch) return
         askedThisLaunch = true
-        showDialog("開啟「轉珠助手」權限",
-            "自動轉珠需要開啟無障礙服務「轉珠助手」，才能：\n" +
+        showDialog("開啟「自轉珠」權限",
+            "自動轉珠需要開啟無障礙服務「自轉珠」，才能：\n" +
                 "• 顯示懸浮工作列\n• 截取遊戲畫面辨識盤面與按鈕\n• 代替你拖曳轉珠、點擊按鈕\n\n" +
                 "截圖只在手機上即時處理，不會儲存或上傳。\n\n" +
-                "按「前往開啟」後，找到「轉珠助手」（可能在「已下載的應用程式」裡）並打開開關。",
+                "按「前往開啟」後，找到「自轉珠」（可能在「已下載的應用程式」裡）並打開開關。",
             "前往開啟", { goEnable() },
             "稍後", {})
     }
@@ -280,9 +295,9 @@ class MainActivity : Activity() {
         val geo = settings.hasGeometry
         autoStatus.text = when {
             Build.VERSION.SDK_INT < 30 -> "⚠ 自動轉珠需要 Android 11 以上（目前 Android ${Build.VERSION.RELEASE}），仍可使用手動模式"
-            !on -> "● 轉珠助手：未開啟（照下方步驟 1 開啟）"
-            !geo -> "● 轉珠助手：已開啟。下一步：在戰鬥中按工作列的「校」校正盤面"
-            else -> "● 轉珠助手：已開啟、盤面已校正（6×${settings.geometry.rows}），按工作列 ▶ 開始自動執行"
+            !on -> "● 自轉珠：未開啟（照下方步驟 1 開啟）"
+            !geo -> "● 自轉珠：已開啟。下一步：在戰鬥中按工作列的「校」校正盤面"
+            else -> "● 自轉珠：已開啟、盤面已校正（6×${settings.geometry.rows}），按工作列 ▶ 開始自動執行"
         }
         autoStatus.setTextColor(Color.parseColor(if (on && geo) "#69F0AE" else "#FFD54F"))
         enableBtn.text = if (on) "無障礙設定（已開啟）" else "開啟無障礙設定"
@@ -296,10 +311,13 @@ class MainActivity : Activity() {
         resetColorBtn.text = (if (learned > 0) "重設顏色與符石學習（已學 $learned 格）" else "顏色學習：尚未校正") +
             "\n" + colorStore.stateSummary()
         resetColorBtn.isEnabled = learned > 0
+        typesText.text = "符石類別（遇到程式認不出的珠子，可以自己新增）：\n" +
+            OrbTypes.all().joinToString("\n") { t -> "• ${t.name}：${t.describe()}" + if (t.builtin) "" else "（自訂）" }
+        delTypeBtn.isEnabled = OrbTypes.custom.isNotEmpty()
         val nRules = ruleStore.count
         rulesText.text = (if (nRules == 0) "點擊規則：尚未設定（▶ 自動執行只會轉珠，不會自動過關卡）"
         else "點擊規則：$nRules 條（自動執行時，看到記住的畫面就會自動點）") +
-            "\n記住的關卡：" + StagePresetStore(this).count + " 個（在工作列「關」設定一次，之後自動判斷套用）"
+            "\n" + StagePresetStore(this).summary() + "\n（自我學習：每玩一回合都會記下關卡畫面、破盾結果、珠子顏色，玩越多判斷越準）"
         undoRuleBtn.isEnabled = nRules > 0
         clearRulesBtn.isEnabled = nRules > 0
     }
@@ -309,7 +327,7 @@ class MainActivity : Activity() {
         return choices[if (i < 0) 0 else (i + 1) % choices.size]
     }
 
-    /** 盡量直接打開「轉珠助手」的開關頁；手機不支援時打開無障礙清單並標出它 */
+    /** 盡量直接打開「自轉珠」的開關頁；手機不支援時打開無障礙清單並標出它 */
     private fun openAccessibilitySettings() {
         val comp = ComponentName(this, AutoTurnService::class.java).flattenToString()
         val direct = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")

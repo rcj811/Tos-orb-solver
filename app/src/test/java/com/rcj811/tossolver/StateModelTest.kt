@@ -101,11 +101,40 @@ class StateModelTest {
             IntArray(30) { it % 5 })
         assertEquals(1, rec.solverCell(0))            // 普通
         assertEquals(1, rec.solverCell(1))            // 強化：照常
-        assertEquals(1 or 0x40, rec.solverCell(2))    // 風化/黏腐：不碰、可消
-        assertEquals(1 or 0x10, rec.solverCell(3))    // 觸電：不碰、必消
-        assertEquals(1 or 0x20, rec.solverCell(4))    // 冰封/石化：不碰、不消
+        assertEquals(1 or 0x48, rec.solverCell(2))    // 風化/黏腐：不碰、盡量消
+        assertEquals(1 or 0x50, rec.solverCell(3))    // 觸電：不碰、必消
+        assertEquals(1 or 0x60, rec.solverCell(4))    // 冰封/石化：不碰、不消
         assertEquals(-1, rec.dissolvableColors()[4])
         assertEquals(0, rec.unknownCount())
+    }
+
+    @Test
+    fun customTypesMapToSolverFlags() {
+        OrbTypes.custom = listOf(
+            OrbType(10, "化血", false, OrbType.D_MUST),        // 可以碰、必須消除
+            OrbType(11, "弱化", false, OrbType.D_AVOID),       // 可以碰、盡量不要消除
+            OrbType(12, "刺血", true, OrbType.D_NORMAL),       // 不能碰、照常消除
+            OrbType(13, "石牆", false, OrbType.D_CANNOT),      // 可以碰、不能消除
+        )
+        try {
+            val rec = Recognition(5, IntArray(30) { 2 }, FloatArray(30) { 0.9f }, Array(30) { FloatArray(3) },
+                IntArray(30) { if (it < 4) 10 + it else 0 })
+            assertEquals(2 or 0x10, rec.solverCell(0))
+            assertEquals(2 or 0x80, rec.solverCell(1))
+            assertEquals(2 or 0x40, rec.solverCell(2))
+            assertEquals(2 or 0x20, rec.solverCell(3))
+            assertEquals(-1, rec.dissolvableColors()[3])
+            // 已刪除的類別 → 當障礙
+            val gone = Recognition(5, IntArray(30), FloatArray(30) { 0.9f }, Array(30) { FloatArray(3) }, IntArray(30) { 99 })
+            assertEquals(0x60, gone.solverCell(0))
+            // 長按循環：內建 → 自訂 → 回到普通
+            assertEquals(10, OrbTypes.next(OrbState.LOCKED))
+            assertEquals(OrbState.NORMAL, OrbTypes.next(13))
+            assertEquals("化", OrbTypes.get(10).badge)
+            assertEquals("可以碰・必須消除", OrbTypes.get(10).describe())
+        } finally {
+            OrbTypes.custom = emptyList()
+        }
     }
 
     @Test

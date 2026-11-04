@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">轉珠求解器</string>
-    <string name="a11y_label">轉珠助手（自動轉珠）</string>
+    <string name="app_name">自轉珠</string>
+    <string name="a11y_label">自轉珠</string>
     <string name="a11y_description">開啟後畫面上會出現懸浮工作列。使用工作列功能（轉珠、自動執行、新增點擊規則、校正）時，會截取目前畫面來辨識盤面與按鈕、計算轉珠路徑，並代替你的手指拖曳與點擊。截圖只在手機上即時處理，不會儲存或上傳；不會讀取其他 App 的文字或內容。</string>
 </resources>

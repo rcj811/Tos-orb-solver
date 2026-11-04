@@ -72,3 +72,46 @@ class StageMatcherTest {
         assertTrue(TapMatcher.meanAbsDiff(FloatArray(4), FloatArray(5)) == 1f)
     }
 }
+
+/** 關卡自我學習：記住不同樣子、統計、顏色線上學習 */
+class SelfLearningTest {
+    @Test
+    fun stageRemembersNewLooks() {
+        val a = FloatArray(480) { 0.2f }
+        val p = StagePreset(a, StageRules().apply { comboMin = 7 })
+        // 第二波：畫面差 0.04（仍在門檻內）→ 多記一種樣子
+        val wave2 = FloatArray(480) { 0.24f }
+        p.learn(wave2)
+        assertEquals(2, p.sigs.size)
+        // 第三波：差 0.08，原本認不出來；但和第二波只差 0.04 → 認得
+        val wave3 = FloatArray(480) { 0.28f }
+        assertTrue(p.diff(wave3) < StageMatcher.MATCH_DIFF)
+        assertEquals(0, StageMatcher.best(wave3, listOf(p)).first)
+        // 幾乎一樣的畫面不會一直增加，而是微調
+        p.learn(FloatArray(480) { 0.201f })
+        assertEquals(2, p.sigs.size)
+        // 改機制保留樣子
+        val q = p.withRules(StageRules().apply { firstMin = 5 }, wave3)
+        assertEquals(3, q.sigs.size)
+        assertEquals(5, q.rules.firstMin)
+    }
+
+    @Test
+    fun hardStageFlag() {
+        val p = StagePreset(FloatArray(10), StageRules())
+        p.met = 4; p.unmet = 2
+        assertTrue(!p.hard)
+        p.unmet = 3
+        assertTrue(p.hard)
+    }
+
+    @Test
+    fun onlineColorLearningMovesSlowly() {
+        val m = ColorModel.defaults()
+        val before = m.centroids[1].copyOf()
+        val target = floatArrayOf(before[0] + 0.2f, before[1], before[2])
+        m.learnOnline(List(10) { target }, List(10) { 1 })
+        val moved = m.centroids[1][0] - before[0]
+        assertTrue("moved=$moved", moved > 0.01f && moved < 0.05f)   // 慢慢靠近，不會一次跳過去
+    }
+}

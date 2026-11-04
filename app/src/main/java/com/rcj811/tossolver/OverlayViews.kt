@@ -113,14 +113,15 @@ class CalibrationView(context: Context) : View(context) {
                     OrbState.ENHANCED -> Color.parseColor("#FFB300")
                     OrbState.NO_TOUCH -> Color.parseColor("#8D6E63")
                     OrbState.ELECTRIC -> Color.parseColor("#FDD835")
-                    else -> Color.parseColor("#4FC3F7")
+                    OrbState.LOCKED -> Color.parseColor("#4FC3F7")
+                    else -> Color.parseColor("#CE93D8")   // 自訂類別
                 }
                 canvas.drawCircle(x + s * 0.76f, y + s * 0.76f, s * 0.17f, fill)
                 ring.color = if (stateEdited[i]) Color.YELLOW else Color.WHITE
                 canvas.drawCircle(x + s * 0.76f, y + s * 0.76f, s * 0.17f, ring)
                 text.textSize = s * 0.2f
                 text.color = Color.BLACK
-                canvas.drawText(OrbState.BADGE[st], x + s * 0.76f, y + s * 0.83f, text)
+                canvas.drawText(OrbTypes.get(st).badge, x + s * 0.76f, y + s * 0.83f, text)
                 text.color = Color.WHITE
             }
             if (!edited[i] && !stateEdited[i] && st <= OrbState.ENHANCED && conf[i] < OrbRecognizer.UNKNOWN_CONF) {
@@ -163,8 +164,8 @@ class CalibrationView(context: Context) : View(context) {
                     val i = geo.cellAt(x, y)
                     if (i >= 0) {
                         if (e.eventTime - e.downTime >= 450) {
-                            // 長按：切換符石狀態（普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化）
-                            states[i] = (states[i] + 1) % OrbState.COUNT
+                            // 長按：切換符石類別（普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 自訂…）
+                            states[i] = OrbTypes.next(states[i])
                             stateEdited[i] = true
                         } else {
                             // 點一下：切換顏色

@@ -15,9 +15,16 @@ constexpr int MAX_PATH = 60;
 // 珠子編碼：低 3 bits 為珠種，高位為隨珠移動的狀態旗標
 enum Orb : uint8_t { FIRE = 0, WATER = 1, WOOD = 2, LIGHT = 3, DARK = 4, HEART = 5 };
 constexpr uint8_t EMPTY = 0xFF;
-constexpr uint8_t F_ELEC = 0x10;     // 觸電：不可觸碰；回合結束仍殘留 → 攻擊為 0
-constexpr uint8_t F_FROZEN = 0x20;   // 冰封：不可觸碰、不可消除
-constexpr uint8_t F_WEATHER = 0x40;  // 風化：不可觸碰；被消除有加分
+// 符石規則旗標（可自由組合，對應 App 的符石類別設定）
+constexpr uint8_t F_PREFER = 0x08;      // 盡量消除（消掉有加分）
+constexpr uint8_t F_MUST = 0x10;        // 必須消除（回合結束仍殘留 → 未達成條件，例：觸電攻擊力為 0）
+constexpr uint8_t F_NODISSOLVE = 0x20;  // 不能消除
+constexpr uint8_t F_NOTOUCH = 0x40;     // 不能碰（路徑不能經過、不能當起點）
+constexpr uint8_t F_AVOID = 0x80;       // 盡量不要消除（消掉會扣分，例：弱化符石）
+// 內建符石狀態
+constexpr uint8_t F_ELEC = F_NOTOUCH | F_MUST;          // 觸電：不能碰、必須消除
+constexpr uint8_t F_FROZEN = F_NOTOUCH | F_NODISSOLVE;  // 冰封 / 石化：不能碰、不能消除
+constexpr uint8_t F_WEATHER = F_NOTOUCH | F_PREFER;     // 風化 / 黏腐：不能碰、消掉有加分
 inline int orbColor(uint8_t v) { return v & 7; }
 
 // 方向：0右 1下 2左 3上 4右下 5左下 6左上 7右上

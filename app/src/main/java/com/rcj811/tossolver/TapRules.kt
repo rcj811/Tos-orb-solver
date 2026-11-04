@@ -65,6 +65,13 @@ object TapMatcher {
         return meanAbsDiff(s, rule.sig)
     }
 
+    /** 自我學習：規則被觸發時，讓記住的樣子慢慢貼近現在的按鈕（按鈕外觀小幅變化也認得） */
+    fun learn(frame: Frame, rule: TapRule, rate: Float = 0.1f) {
+        val s = signature(frame, rule.x, rule.y, rule.size) ?: return
+        if (s.size != rule.sig.size) return
+        for (i in s.indices) rule.sig[i] += rate * (s[i] - rule.sig[i])
+    }
+
     /** 回傳第一條符合目前畫面的規則索引，沒有則 -1（skip 中的規則略過） */
     fun firstMatch(frame: Frame, rules: List<TapRule>, skip: (Int) -> Boolean = { false }): Int {
         for (i in rules.indices) {
@@ -75,8 +82,49 @@ object TapMatcher {
     }
 }
 
-/** 記住的關卡：敵人區畫面特徵 ＋ 這關的機制 */
-class StagePreset(val sig: FloatArray, val rules: StageRules)
+/**
+ * 記住的關卡：敵人區畫面特徵（可有多種樣子）＋ 這關的機制 ＋ 遊玩統計。
+ * 自我學習：每次認出這關就記下這次的樣子（不同波次、動作），越玩越容易認出來。
+ */
+class StagePreset(
+    val sigs: MutableList<FloatArray>,
+    val rules: StageRules,
+    var seen: Int = 0,      // 在這關轉過幾回合
+    var met: Int = 0,       // 達成機制的回合
+    var unmet: Int = 0,     // 沒達成機制的回合
+) {
+    constructor(sig: FloatArray, rules: StageRules) : this(mutableListOf(sig.copyOf()), rules)
+
+    companion object {
+        const val MAX_SIGS = 8
+        const val ADD_DIFF = 0.015f   // 和已記住的樣子差這麼多以上，就多記一種樣子
+        const val BLEND = 0.1f
+    }
+
+    val sig: FloatArray get() = sigs[0]
+
+    fun diff(s: FloatArray): Float = sigs.minOf { TapMatcher.meanAbsDiff(s, it) }
+
+    /** 認出這關時呼叫：記住新樣子，或讓最接近的樣子慢慢貼近現在的畫面 */
+    fun learn(s: FloatArray) {
+        var j = 0
+        var d = Float.MAX_VALUE
+        for (k in sigs.indices) { val x = TapMatcher.meanAbsDiff(s, sigs[k]); if (x < d) { d = x; j = k } }
+        if (d > ADD_DIFF && sigs.size < MAX_SIGS) {
+            sigs.add(s.copyOf())
+        } else if (sigs[j].size == s.size) {
+            val t = sigs[j]
+            for (k in t.indices) t[k] += BLEND * (s[k] - t[k])
+        }
+    }
+
+    /** 改機制時保留學過的樣子與統計（機制改了，破盾統計重算） */
+    fun withRules(r: StageRules, sig: FloatArray): StagePreset =
+        StagePreset(sigs.map { it.copyOf() }.toMutableList(), r, seen, 0, 0).also { it.learn(sig) }
+
+    /** 這關常常破不了：自動提高搜尋品質 */
+    val hard: Boolean get() = unmet >= 3 && unmet > (met + unmet) * 0.3f
+}
 
 /**
  * 自動判斷關卡：比對盤面上方「敵人區」的畫面特徵。
@@ -101,7 +149,7 @@ object StageMatcher {
         var bi = -1
         var bd = 1f
         for (i in presets.indices) {
-            val d = TapMatcher.meanAbsDiff(sig, presets[i].sig)
+            val d = presets[i].diff(sig)
             if (d < bd) { bd = d; bi = i }
         }
         return if (bd < MATCH_DIFF) bi to bd else -1 to bd

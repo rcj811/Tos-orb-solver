@@ -46,7 +46,7 @@ import kotlin.math.abs
  *  ＋  新增點擊規則：點一下畫面上要自動按的位置（例如「再次挑戰」）
  *  校  校正盤面位置與顏色
  *  關  設定並記住這一關的機制（拼圖盾、Combo 盾…）；之後遇到同一關會自動判斷套用
- *  ✕  連按兩下關閉轉珠助手
+ *  ✕  連按兩下關閉自轉珠
  *
  * 截圖只在手機上即時處理，不儲存、不上傳。
  */
@@ -83,6 +83,8 @@ class AutoTurnService : AccessibilityService() {
     private var lastGoalsOk = true
     private var unmetStreak = 0
     private var closeArmedAt = 0L
+    private var onlineLearned = 0        // 自我學習：累積但還沒存檔的顏色樣本數
+    private var rulesDirty = 0
     private val bossReadTried = ArrayList<FloatArray>()   // 這次執行已嘗試讀過技能的關卡（敵人畫面特徵）
     private var lastActionAt = 0L     // 上次轉珠或點擊的時間（用來提示「在等什麼」）
     private var lastHintAt = 0L
@@ -139,6 +141,7 @@ class AutoTurnService : AccessibilityService() {
         presets = presetStore.load()
         model = colorStore.load()
         stateModel = colorStore.loadStates()
+        OrbTypeStore(this).apply()
         rules = ruleStore.load()
         addPathView()
         addToolbar()
@@ -175,6 +178,7 @@ class AutoTurnService : AccessibilityService() {
     fun reloadModel() {
         model = colorStore.load()
         stateModel = colorStore.loadStates()
+        OrbTypeStore(this).apply()
         rules = ruleStore.load()
         presets = presetStore.load()
         if (activePreset >= presets.size) { activePreset = -1; stage = StageRules() }
@@ -379,8 +383,10 @@ class AutoTurnService : AccessibilityService() {
     /** 依敵人區畫面判斷是哪一關，套用記住的機制；沒記過的關卡照一般盤打 */
     private fun applyStageFor(frame: Frame?, geo: BoardGeometry) {
         val prev = activePreset
-        val (idx, _) = if (frame == null) (-1 to 1f) else StageMatcher.best(StageMatcher.signature(frame, geo), presets)
+        val sig = if (frame == null) null else StageMatcher.signature(frame, geo)
+        val (idx, _) = StageMatcher.best(sig, presets)
         activePreset = idx
+        if (idx >= 0 && sig != null) presets[idx].learn(sig)   // 自我學習：記住這關這次的樣子
         stage = if (idx >= 0) StageRules().apply { copyFrom(presets[idx].rules) } else StageRules()
         if (idx != prev) {
             unmetStreak = 0
@@ -399,6 +405,13 @@ class AutoTurnService : AccessibilityService() {
             val v = getSystemService(VIBRATOR_SERVICE) as Vibrator
             v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 250, 150, 250, 150, 400), -1))
         }
+    }
+
+    /** 把自我學習的結果存檔 */
+    private fun flushLearning() {
+        if (onlineLearned > 0) { colorStore.save(model, onlineLearned); onlineLearned = 0 }
+        if (rulesDirty > 0) { ruleStore.save(rules); rulesDirty = 0 }
+        if (presets.isNotEmpty()) presetStore.save(presets)
     }
 
     // ---------------- 讀取王的技能（OCR） ----------------
@@ -442,7 +455,7 @@ class AutoTurnService : AccessibilityService() {
         val list = presetStore.load()
         val (idx, _) = StageMatcher.best(sig, list)
         val rules = if (idx >= 0) StageRules().apply { copyFrom(list[idx].rules); mergeFrom(parse.rules) } else parse.rules
-        if (idx >= 0) list[idx] = StagePreset(sig, rules) else list.add(StagePreset(sig, rules))
+        if (idx >= 0) list[idx] = list[idx].withRules(rules, sig) else list.add(StagePreset(sig, rules))
         presetStore.save(list)
         presets = list
         activePreset = -1
@@ -464,12 +477,12 @@ class AutoTurnService : AccessibilityService() {
         val now = SystemClock.uptimeMillis()
         if (now - closeArmedAt < 2500) {
             stopAuto(null)
-            toast("已關閉轉珠助手（要再使用，打開「轉珠求解器」App 即可重新開啟）")
+            toast("已關閉自轉珠（要再使用，打開「自轉珠」App 即可重新開啟）")
             cleanup()
             disableSelf()
         } else {
             closeArmedAt = now
-            toast("再按一次 ✕ 關閉轉珠助手")
+            toast("再按一次 ✕ 關閉自轉珠")
         }
     }
 
@@ -524,6 +537,7 @@ class AutoTurnService : AccessibilityService() {
     private fun stopAuto(msg: String?) {
         if (!running) return
         running = false
+        flushLearning()
         main.removeCallbacks(autoTick)
         updateBar()
         if (msg != null) toast(msg)
@@ -580,6 +594,16 @@ class AutoTurnService : AccessibilityService() {
                 lastActionAt = now
                 stableCount = 0
                 sameRuleTaps = 0
+                // 自我學習：用非常有把握的普通珠微調顏色
+                run {
+                    val fs = ArrayList<FloatArray>()
+                    val ls = ArrayList<Int>()
+                    for (i in 0 until geo.cells) {
+                        if (rec.confidence[i] >= 0.85f && rec.states[i] == OrbState.NORMAL) { fs.add(rec.features[i]); ls.add(rec.colors[i]) }
+                    }
+                    onlineLearned += model.learnOnline(fs, ls)
+                    if (onlineLearned >= 200) { colorStore.save(model, onlineLearned); onlineLearned = 0 }
+                }
                 // 出手前用乾淨截圖判斷關卡、套用機制
                 captureClean { clean ->
                     if (!running) { busy = false; updateBar(); return@captureClean }
@@ -641,6 +665,8 @@ class AutoTurnService : AccessibilityService() {
                 lastProgressAt = now
                 lastActionAt = now
                 val r = rules[idx]
+                TapMatcher.learn(frame, r)                    // 自我學習：按鈕外觀小幅變化也認得
+                if (++rulesDirty >= 5) { ruleStore.save(rules); rulesDirty = 0 }
                 tap(r.x, r.y) { ok ->
                     if (ok) rulesTapped++
                     next(1500)
@@ -662,7 +688,10 @@ class AutoTurnService : AccessibilityService() {
     private fun solveAndAct(rec: Recognition, geo: BoardGeometry, done: (Boolean) -> Unit) {
         // 符石狀態轉成求解旗標（風化/黏腐、觸電、冰封/石化）；無法辨識的格子當冰封：不碰、也不算消除
         val cells = rec.solverCells()
-        val beam = settings.beam
+        val presetIdx = activePreset
+        val hardStage = presetIdx in presets.indices && presets[presetIdx].hard
+        // 自我學習：這關常常破不了 → 自動提高搜尋品質
+        val beam = if (hardStage) maxOf(settings.beam, 1500) else settings.beam
         val maxPath = settings.maxPathFor(geo.rows)
         val dirs = settings.dirs
         val ruleInts = stage.toInts()
@@ -676,6 +705,15 @@ class AutoTurnService : AccessibilityService() {
                     return@post
                 }
                 lastGoalsOk = !hasStage || res.goalsMet
+                // 自我學習：記錄這關的遊玩結果（破盾成功 / 失敗），作為之後調整依據
+                if (presetIdx in presets.indices) {
+                    val p = presets[presetIdx]
+                    val wasHard = p.hard
+                    p.seen++
+                    if (hasStage) { if (res.goalsMet) p.met++ else p.unmet++ }
+                    presetStore.save(presets)
+                    if (!wasHard && p.hard) toast("這關常常破不了，之後會自動提高搜尋品質")
+                }
                 if (!lastGoalsOk) toast("這盤無法完全符合機制（${stage.summary()}），改打最多 combo")
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)
@@ -1006,7 +1044,7 @@ class AutoTurnService : AccessibilityService() {
                 toast("沒有設定機制，這關會照一般盤打")
             }
         } else if (idx >= 0) {
-            list[idx] = StagePreset(sig, StageRules().apply { copyFrom(edit) })
+            list[idx] = list[idx].withRules(StageRules().apply { copyFrom(edit) }, sig)
             toast("已更新關卡 ${idx + 1}：${edit.summary()}")
         } else {
             list.add(StagePreset(sig, StageRules().apply { copyFrom(edit) }))
@@ -1071,6 +1109,9 @@ class AutoTurnService : AccessibilityService() {
         rowA.addView(btn("自動偵測") { autoDetectInCalibration() }, wlp())
         rowA.addView(btn("列數 ${startGeo.rows}") { b -> cycleRows(b) }, wlp())
         rowA.addView(btn("重新截圖") { recaptureCalibration() }, wlp())
+        rowB.addView(btn("＋類別") {
+            OrbTypeDialog.showAdd(this, overlay = true) { t -> toast("已新增「${t.name}」：長按格子切換到它") }
+        }, wlp())
         rowB.addView(btn("儲存並學習") { saveCalibration() }, wlp())
         rowB.addView(btn("關閉") { closeCalibration() }, wlp())
         panel.addView(info)
@@ -1118,7 +1159,7 @@ class AutoTurnService : AccessibilityService() {
         val n = v.geo.cells
         val unknown = (0 until n).count { !v.edited[it] && v.conf[it] < OrbRecognizer.UNKNOWN_CONF }
         val fixed = (0 until n).count { v.edited[it] }
-        calibInfo?.text = "把格線對齊盤面（拖曳移動、右下圓點縮放）。點格子＝改顏色，長按格子＝標狀態（強化／風化黏腐／觸電／冰封石化）。\n" +
+        calibInfo?.text = "把格線對齊盤面（拖曳移動、右下圓點縮放）。點格子＝改顏色，長按格子＝切換符石類別（強化／風化黏腐／觸電／冰封石化／自訂）；沒有合適的按「＋類別」新增。\n" +
             "無法辨識 $unknown 格・已修正 $fixed 格・累計學習 ${colorStore.learnedSamples} 格"
     }
 

@@ -86,9 +86,13 @@ class StagePresetStore(context: Context) {
             val arr = org.json.JSONArray(sp.getString("presets", "[]"))
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                val sig = o.getString("sig").split(',').map { it.toFloat() }.toFloatArray()
+                fun parseSig(t: String) = t.split(',').map { it.toFloat() }.toFloatArray()
+                val sigs = ArrayList<FloatArray>()
+                val sa = o.optJSONArray("sigs")
+                if (sa != null) for (j in 0 until sa.length()) sigs.add(parseSig(sa.getString(j)))
+                else sigs.add(parseSig(o.getString("sig")))          // 舊格式：只有一種樣子
                 val r = StageRules().apply { deserialize(o.getString("rules")) }
-                out.add(StagePreset(sig, r))
+                out.add(StagePreset(sigs, r, o.optInt("seen"), o.optInt("met"), o.optInt("unmet")))
             }
         }
         return out
@@ -97,16 +101,74 @@ class StagePresetStore(context: Context) {
     fun save(list: List<StagePreset>) {
         val arr = org.json.JSONArray()
         for (p in list) {
+            val sa = org.json.JSONArray()
+            for (sg in p.sigs) sa.put(sg.joinToString(",") { String.format(java.util.Locale.US, "%.3f", it) })
             arr.put(org.json.JSONObject()
-                .put("sig", p.sig.joinToString(",") { String.format(java.util.Locale.US, "%.3f", it) })
-                .put("rules", p.rules.serialize()))
+                .put("sigs", sa)
+                .put("rules", p.rules.serialize())
+                .put("seen", p.seen).put("met", p.met).put("unmet", p.unmet))
         }
         sp.edit().putString("presets", arr.toString()).apply()
     }
 
     val count: Int get() = load().size
 
+    /** 顯示用：關卡數、累計回合、記住的樣子數 */
+    fun summary(): String {
+        val l = load()
+        if (l.isEmpty()) return "記住的關卡：0 個"
+        val turns = l.sumOf { it.seen }
+        val looks = l.sumOf { it.sigs.size }
+        val hard = l.count { it.hard }
+        return "記住的關卡：${l.size} 個（累計 $turns 回合資料、$looks 種畫面樣子" +
+            (if (hard > 0) "、$hard 關自動提高品質" else "") + "）"
+    }
+
     fun clear() = sp.edit().remove("presets").apply()
+}
+
+/** 自訂符石類別的存取 */
+class OrbTypeStore(context: Context) {
+    private val sp = context.getSharedPreferences("orbtypes", Context.MODE_PRIVATE)
+
+    fun load(): List<OrbType> {
+        val out = ArrayList<OrbType>()
+        runCatching {
+            val arr = org.json.JSONArray(sp.getString("types", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(OrbType(o.getInt("id"), o.getString("name"), o.getBoolean("noTouch"), o.getInt("dissolve")))
+            }
+        }
+        return out
+    }
+
+    private fun save(list: List<OrbType>) {
+        val arr = org.json.JSONArray()
+        for (t in list) arr.put(org.json.JSONObject().put("id", t.id).put("name", t.name)
+            .put("noTouch", t.noTouch).put("dissolve", t.dissolve))
+        sp.edit().putString("types", arr.toString()).apply()
+    }
+
+    /** 新增後回傳新類別；同時更新 OrbTypes.custom */
+    fun add(name: String, noTouch: Boolean, dissolve: Int): OrbType {
+        val id = sp.getInt("nextId", OrbTypes.FIRST_CUSTOM_ID)
+        val t = OrbType(id, name, noTouch, dissolve)
+        val list = load() + t
+        sp.edit().putInt("nextId", id + 1).apply()
+        save(list)
+        OrbTypes.custom = list
+        return t
+    }
+
+    fun delete(id: Int) {
+        val list = load().filter { it.id != id }
+        save(list)
+        OrbTypes.custom = list
+    }
+
+    /** 載入到 OrbTypes.custom */
+    fun apply() { OrbTypes.custom = load() }
 }
 
 /** 點擊規則的存取（JSON） */
@@ -210,14 +272,21 @@ class ColorStore(context: Context) {
         sp.edit().putString("states", arr.toString()).apply()
     }
 
-    /** 各狀態學了幾個樣子（顯示用） */
+    /** 各類別學了幾個樣子（顯示用） */
     fun stateSummary(): String {
         val m = loadStates()
-        val parts = (1 until OrbState.COUNT).mapNotNull { st ->
-            val n = m.labels.count { it == st }
-            if (n > 0) "${OrbState.NAMES[st]} $n" else null
+        val parts = OrbTypes.all().filter { it.id != OrbState.NORMAL }.mapNotNull { t ->
+            val n = m.labels.count { it == t.id }
+            if (n > 0) "${t.name} $n" else null
         }
         return if (parts.isEmpty()) "尚未學習特殊符石" else "已學特殊符石：" + parts.joinToString("、")
+    }
+
+    /** 刪除某類別學過的樣子 */
+    fun forgetState(id: Int) {
+        val m = loadStates()
+        val keep = m.labels.indices.filter { m.labels[it] != id }
+        saveStates(StateModel(keep.map { m.protos[it] }.toMutableList(), keep.map { m.labels[it] }.toMutableList()))
     }
 
     fun reset() = sp.edit().clear().apply()
