@@ -85,6 +85,7 @@ class AutoTurnService : AccessibilityService() {
     private var closeArmedAt = 0L
     private var onlineLearned = 0        // 自我學習：累積但還沒存檔的顏色樣本數
     private var rulesDirty = 0
+    private var lastNoMove = false        // 上一次求解：整盤都不能碰
     private val bossReadTried = ArrayList<FloatArray>()   // 這次執行已嘗試讀過技能的關卡（敵人畫面特徵）
     private var lastActionAt = 0L     // 上次轉珠或點擊的時間（用來提示「在等什麼」）
     private var lastHintAt = 0L
@@ -625,6 +626,11 @@ class AutoTurnService : AccessibilityService() {
                         return@captureClean
                     }
                     solveAndAct(rec, geo) { ok ->
+                        if (lastNoMove) {
+                            busy = false
+                            alertManual("盤面全部是不能碰的珠子，自動執行已停止，請手動處理（或到設定把這類珠子改成「可以碰」）")
+                            return@solveAndAct
+                        }
                         if (ok) turnsDone++
                         unmetStreak = if (!lastGoalsOk) unmetStreak + 1 else 0
                         if (unmetStreak >= MAX_UNMET_TURNS) {
@@ -697,12 +703,20 @@ class AutoTurnService : AccessibilityService() {
         val ruleInts = stage.toInts()
         val hasStage = !stage.isEmpty()
         worker.execute {
-            val res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts))
+            var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts))
             main.post {
+                lastNoMove = false
                 if (!res.found || res.dirs.isEmpty()) {
-                    toast("找不到可行路徑")
-                    done(false)
-                    return@post
+                    // 消不出任何 combo（例如整盤冰封）：移動一步結束回合；連一步都不能動 → 交給使用者
+                    val pass = passMove(cells, geo.rows)
+                    if (pass == null) {
+                        lastNoMove = true
+                        toast("盤面全部是不能碰的珠子，沒辦法轉")
+                        done(false)
+                        return@post
+                    }
+                    toast("這盤消不出 combo，移動一步結束回合")
+                    res = pass
                 }
                 lastGoalsOk = !hasStage || res.goalsMet
                 // 自我學習：記錄這關的遊玩結果（破盾成功 / 失敗），作為之後調整依據
@@ -731,6 +745,22 @@ class AutoTurnService : AccessibilityService() {
                 }
             }
         }
+    }
+
+    /** 找一步合法的移動（兩顆都能碰的相鄰珠子），用來在消不出 combo 時結束回合 */
+    private fun passMove(cells: IntArray, rows: Int): SolveResult? {
+        val n = rows * 6
+        for (i in 0 until n) {
+            if (cells[i] and 0x40 != 0) continue
+            for (d in 0 until 4) {
+                val x = i % 6 + Dirs.DX[d]
+                val y = i / 6 + Dirs.DY[d]
+                if (x !in 0 until 6 || y !in 0 until rows) continue
+                if (cells[y * 6 + x] and 0x40 != 0) continue
+                return SolveResult(true, 0, 0, i, 0, intArrayOf(d))
+            }
+        }
+        return null
     }
 
     /** 連續拖曳：按住起點 → 依序經過每格中心 → 在終點停一下再放開 */
