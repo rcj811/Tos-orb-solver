@@ -16,6 +16,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.view.ContextThemeWrapper
 import android.view.Display
@@ -43,7 +45,8 @@ import kotlin.math.abs
  *  轉  只轉這一回合
  *  ＋  新增點擊規則：點一下畫面上要自動按的位置（例如「再次挑戰」）
  *  校  校正盤面位置與顏色
- *  關  這一關的機制（拼圖盾、Combo 盾、多屬性盾、燃燒、黑洞、火焰區、漩渦…）
+ *  關  設定並記住這一關的機制（拼圖盾、Combo 盾…）；之後遇到同一關會自動判斷套用
+ *  ✕  連按兩下關閉轉珠助手
  *
  * 截圖只在手機上即時處理，不儲存、不上傳。
  */
@@ -66,14 +69,20 @@ class AutoTurnService : AccessibilityService() {
         private const val RULE_COOLDOWN_MS = 3000L    // 同一條規則兩次點擊的最短間隔
         private const val MAX_SAME_RULE_TAPS = 6       // 同一條規則連續點這麼多次、中間都沒轉珠 → 視為卡住
         private const val IDLE_STOP_MS = 180_000L      // 3 分鐘沒有任何進展 → 停止
+        private const val MAX_UNMET_TURNS = 3          // 套用機制後連續幾回合破不了 → 交給使用者
     }
 
     private lateinit var wm: WindowManager
     private lateinit var settings: AppSettings
     private lateinit var colorStore: ColorStore
     private lateinit var ruleStore: RuleStore
-    private lateinit var stageStore: StageRuleStore
-    private var stage = StageRules()
+    private lateinit var presetStore: StagePresetStore
+    private var presets: MutableList<StagePreset> = ArrayList()
+    private var stage = StageRules()        // 目前套用的機制（依畫面自動判斷）
+    private var activePreset = -1           // 目前判斷出的關卡（-1 = 一般關卡）
+    private var lastGoalsOk = true
+    private var unmetStreak = 0
+    private var closeArmedAt = 0L
     private lateinit var model: ColorModel
     private var rules: List<TapRule> = emptyList()
     private val main = Handler(Looper.getMainLooper())
@@ -122,8 +131,8 @@ class AutoTurnService : AccessibilityService() {
         settings = AppSettings(this)
         colorStore = ColorStore(this)
         ruleStore = RuleStore(this)
-        stageStore = StageRuleStore(this)
-        stage = stageStore.load()
+        presetStore = StagePresetStore(this)
+        presets = presetStore.load()
         model = colorStore.load()
         rules = ruleStore.load()
         addPathView()
@@ -161,6 +170,8 @@ class AutoTurnService : AccessibilityService() {
     fun reloadModel() {
         model = colorStore.load()
         rules = ruleStore.load()
+        presets = presetStore.load()
+        if (activePreset >= presets.size) { activePreset = -1; stage = StageRules() }
     }
 
     // ---------------- 懸浮視窗 ----------------
@@ -187,7 +198,7 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun barButton(label: String, color: String, onClick: (() -> Unit)?): TextView {
-        val size = dp(44)
+        val size = dp(40)
         return TextView(this).apply {
             text = label
             textSize = 17f
@@ -220,18 +231,20 @@ class AutoTurnService : AccessibilityService() {
         val add = barButton("＋", "#1565C0") { startRecordRule() }
         val cal = barButton("校", "#6A1B9A") { openCalibration() }
         val stg = barButton("關", "#546E7A") { openStagePanel() }
+        val close = barButton("✕", "#37474F") { onCloseTap() }
         b.addView(handle)
         b.addView(play)
         b.addView(once)
         b.addView(add)
         b.addView(cal)
         b.addView(stg)
+        b.addView(close)
         foldable.clear()
         foldable.addAll(listOf(once, add, cal, stg))
         val lp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true).apply {
-            // 預設：畫面上方中央（6 顆按鈕約 310dp 寬）；拖曳過就用上次的位置
+            // 預設：畫面上方中央（7 顆按鈕約 332dp 寬）；拖曳過就用上次的位置
             val dm = resources.displayMetrics
-            x = if (settings.barX >= 0) settings.barX else maxOf(0, (dm.widthPixels - dp(310)) / 2)
+            x = if (settings.barX >= 0) settings.barX else maxOf(0, (dm.widthPixels - dp(332)) / 2)
             y = if (settings.barY >= 0) settings.barY else (dm.heightPixels * 0.05f).toInt()
         }
         wm.addView(b, lp)
@@ -252,7 +265,7 @@ class AutoTurnService : AccessibilityService() {
         setColor(playBtn, if (running) "#D32F2F" else "#2E7D32")
         onceBtn?.text = onceLabel ?: "轉"
         setColor(onceBtn, if (busy && !running) "#F57C00" else "#C62828")
-        setColor(stageBtn, if (stage.isEmpty()) "#546E7A" else "#F9A825")
+        setColor(stageBtn, if (activePreset >= 0 && !stage.isEmpty()) "#F9A825" else "#546E7A")
         for (v in foldable) v.visibility = if (collapsed) View.GONE else View.VISIBLE
     }
 
@@ -311,6 +324,20 @@ class AutoTurnService : AccessibilityService() {
         main.postDelayed({ takeShot(cb) }, 60)   // 等路徑從畫面上消失
     }
 
+    /** 暫時隱藏工作列再截圖（判斷關卡、錄製規則、校正用；每回合最多一次，避免閃爍） */
+    private fun captureClean(cb: (Frame?) -> Unit) {
+        if (Build.VERSION.SDK_INT < 30) { cb(null); return }
+        pathView?.clear()
+        val b = bar
+        b?.visibility = View.INVISIBLE
+        main.postDelayed({
+            takeShot { f ->
+                b?.visibility = View.VISIBLE
+                cb(f)
+            }
+        }, 90)
+    }
+
     @TargetApi(30)
     private fun takeShot(cb: (Frame?) -> Unit) {
         try {
@@ -341,20 +368,63 @@ class AutoTurnService : AccessibilityService() {
         }
     }
 
+    // ---------------- 關卡自動判斷 ----------------
+
+    /** 依敵人區畫面判斷是哪一關，套用記住的機制；沒記過的關卡照一般盤打 */
+    private fun applyStageFor(frame: Frame?, geo: BoardGeometry) {
+        val prev = activePreset
+        val (idx, _) = if (frame == null) (-1 to 1f) else StageMatcher.best(StageMatcher.signature(frame, geo), presets)
+        activePreset = idx
+        stage = if (idx >= 0) StageRules().apply { copyFrom(presets[idx].rules) } else StageRules()
+        if (idx != prev) {
+            unmetStreak = 0
+            if (idx >= 0) toast("自動判斷：記住的關卡 ${idx + 1}（${stage.summary()}）")
+            else if (prev >= 0) toast("自動判斷：一般關卡")
+        }
+        updateBar()
+    }
+
+    /** 真的過不了：停止並震動提醒使用者手動處理 */
+    private fun alertManual(msg: String) {
+        stopAuto(null)
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        runCatching {
+            @Suppress("DEPRECATION")
+            val v = getSystemService(VIBRATOR_SERVICE) as Vibrator
+            v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 250, 150, 250, 150, 400), -1))
+        }
+    }
+
+    // ---------------- ✕ 關閉 ----------------
+
+    private fun onCloseTap() {
+        val now = SystemClock.uptimeMillis()
+        if (now - closeArmedAt < 2500) {
+            stopAuto(null)
+            toast("已關閉轉珠助手（要再使用，打開「轉珠求解器」App 即可重新開啟）")
+            cleanup()
+            disableSelf()
+        } else {
+            closeArmedAt = now
+            toast("再按一次 ✕ 關閉轉珠助手")
+        }
+    }
+
     // ---------------- 只轉這一回合 ----------------
 
     private fun onOnceTap() {
         if (running || busy || !checkReady()) return
         busy = true
         updateBar("…")
-        capture { frame ->
-            if (frame == null) { finishOnce("截圖失敗"); return@capture }
+        captureClean { frame ->
+            if (frame == null) { finishOnce("截圖失敗"); return@captureClean }
             val geo = settings.geometry
+            applyStageFor(frame, geo)
             val rec = OrbRecognizer.recognize(frame, geo, model)
             val unknown = rec.unknownCount()
             if (unknown > geo.cells / 3) {
                 finishOnce("看不出盤面（$unknown 格無法辨識）。請在戰鬥中珠子靜止時再按，或按「校」重新校正")
-                return@capture
+                return@captureClean
             }
             if (unknown > 0) toast("$unknown 格無法辨識，路徑會避開它們")
             solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
@@ -376,7 +446,8 @@ class AutoTurnService : AccessibilityService() {
         running = true
         lastSeen = null; stableCount = 0; lastActed = null
         ruleTapAt.clear(); lastRule = -1; sameRuleTaps = 0
-        turnsDone = 0; rulesTapped = 0
+        turnsDone = 0; rulesTapped = 0; unmetStreak = 0
+        presets = presetStore.load()
         lastProgressAt = SystemClock.uptimeMillis()
         updateBar()
         toast(if (rules.isEmpty()) "自動執行：開始（只會轉珠；按「＋」新增點擊規則可自動過關卡）" else "自動執行：開始（${rules.size} 條點擊規則）")
@@ -426,9 +497,20 @@ class AutoTurnService : AccessibilityService() {
                 lastProgressAt = now
                 stableCount = 0
                 sameRuleTaps = 0
-                solveAndAct(rec, geo) { ok ->
-                    if (ok) turnsDone++
-                    next(if (ok) 2500 else 1000)
+                // 出手前用乾淨截圖判斷關卡、套用機制
+                captureClean { clean ->
+                    if (!running) { busy = false; updateBar(); return@captureClean }
+                    applyStageFor(clean ?: frame, geo)
+                    solveAndAct(rec, geo) { ok ->
+                        if (ok) turnsDone++
+                        unmetStreak = if (!lastGoalsOk) unmetStreak + 1 else 0
+                        if (unmetStreak >= MAX_UNMET_TURNS) {
+                            busy = false
+                            alertManual("這關連續 $MAX_UNMET_TURNS 回合破不了機制（${stage.summary()}），已停止，請手動處理")
+                            return@solveAndAct
+                        }
+                        next(if (ok) 2500 else 1000)
+                    }
                 }
                 return
             }
@@ -437,9 +519,17 @@ class AutoTurnService : AccessibilityService() {
         }
         if (!ready) { stableCount = 0; lastSeen = null }
 
-        // 2) 戰鬥外：依點擊規則自動點擊
+        // 2) 戰鬥外：先看停止畫面（戰敗、體力不足…），再依點擊規則自動點擊
         if (!ready && rules.isNotEmpty()) {
-            val idx = TapMatcher.firstMatch(frame, rules) { i -> now - (ruleTapAt[i] ?: 0L) < RULE_COOLDOWN_MS }
+            val stopIdx = TapMatcher.firstMatch(frame, rules) { i -> rules[i].action != TapRule.ACTION_STOP }
+            if (stopIdx >= 0) {
+                busy = false
+                alertManual("看到停止畫面（規則 ${stopIdx + 1}），已停止自動執行，請手動處理")
+                return
+            }
+            val idx = TapMatcher.firstMatch(frame, rules) { i ->
+                rules[i].action != TapRule.ACTION_TAP || now - (ruleTapAt[i] ?: 0L) < RULE_COOLDOWN_MS
+            }
             if (idx >= 0) {
                 sameRuleTaps = if (idx == lastRule) sameRuleTaps + 1 else 1
                 lastRule = idx
@@ -485,7 +575,8 @@ class AutoTurnService : AccessibilityService() {
                     done(false)
                     return@post
                 }
-                if (hasStage && !res.goalsMet) toast("這盤無法完全符合關卡機制（${stage.summary()}），改打最多 combo")
+                lastGoalsOk = !hasStage || res.goalsMet
+                if (!lastGoalsOk) toast("這盤無法完全符合機制（${stage.summary()}），改打最多 combo")
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)
                 updateBar("${res.combos}")
@@ -547,25 +638,54 @@ class AutoTurnService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
         stopAuto(null)
         busy = true
-        capture { frame ->
+        captureClean { frame ->
             busy = false
             updateBar()
-            if (frame == null) { toast("截圖失敗"); return@capture }
+            if (frame == null) { toast("截圖失敗"); return@captureClean }
             showRecordOverlay(frame)
         }
     }
 
     private fun showRecordOverlay(frame: Frame) {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.argb(70, 0, 0, 0)) }
+        var mode = TapRule.ACTION_TAP
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(225, 21, 101, 192))
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+        }
         val hint = TextView(this).apply {
-            text = "點一下要自動按的位置（例如「再次挑戰」「確定」「出戰」）\n之後只要畫面上出現一樣的東西，自動執行時就會幫你點。\n點這段文字可取消。"
             textSize = 14f
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.argb(220, 21, 101, 192))
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+        val modeBtn = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        fun paintMode() {
+            hint.text = if (mode == TapRule.ACTION_TAP)
+                "點一下要自動按的位置（例如「再次挑戰」「確定」「出戰」）。之後畫面出現一樣的東西，自動執行就會幫你點。"
+            else
+                "點一下這個畫面上的特徵位置（例如「戰敗」「體力不足」的字樣）。之後看到這個畫面，自動執行會停止並震動提醒你。"
+            modeBtn.text = "模式：" + (if (mode == TapRule.ACTION_TAP) "● 看到就點　○ 看到就停止" else "○ 看到就點　● 看到就停止") + "（點這裡切換）"
+        }
+        paintMode()
+        modeBtn.setOnClickListener {
+            mode = if (mode == TapRule.ACTION_TAP) TapRule.ACTION_STOP else TapRule.ACTION_TAP
+            paintMode()
+        }
+        val cancel = TextView(this).apply {
+            text = "✕ 取消"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(4), 0, 0)
             setOnClickListener { closeRecord(); toast("已取消") }
         }
-        root.addView(hint, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+        box.addView(hint)
+        box.addView(modeBtn)
+        box.addView(cancel)
+        root.addView(box, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.TOP
             topMargin = dp(40)
             leftMargin = dp(12)
@@ -579,9 +699,10 @@ class AutoTurnService : AccessibilityService() {
                 if (sig == null) {
                     toast("太靠近螢幕邊緣，請點按鈕中間")
                 } else {
-                    val n = ruleStore.add(TapRule(e.rawX, e.rawY, size, sig))
+                    val n = ruleStore.add(TapRule(e.rawX, e.rawY, size, sig, mode))
                     rules = ruleStore.load()
-                    toast("已新增點擊規則 $n。現在請自己按一下那個按鈕，到下一個畫面再繼續新增")
+                    toast(if (mode == TapRule.ACTION_TAP) "已新增點擊規則 $n。現在請自己按一下那個按鈕，到下一個畫面再繼續新增"
+                    else "已新增停止規則 $n：之後看到這個畫面會停止並提醒你")
                 }
             }
             true
@@ -601,13 +722,26 @@ class AutoTurnService : AccessibilityService() {
     private fun openStagePanel() {
         if (calibRoot != null || recordView != null || stageRoot != null || busy) return
         if (!settings.hasGeometry) { toast("請先按「校」校正盤面位置"); return }
+        if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
         stopAuto(null)
-        showStagePanel()
+        busy = true
+        captureClean { frame ->
+            busy = false
+            updateBar()
+            if (frame == null) { toast("截圖失敗"); return@captureClean }
+            val geo = settings.geometry
+            val sig = StageMatcher.signature(frame, geo)
+            if (sig == null) { toast("盤面上方空間不足，無法記住這一關"); return@captureClean }
+            val (idx, _) = StageMatcher.best(sig, presets)
+            val initial = if (idx >= 0) StageRules().apply { copyFrom(presets[idx].rules) } else StageRules()
+            if (idx >= 0) toast("這是記住的關卡 ${idx + 1}，可修改後按完成")
+            showStagePanel(sig, idx, initial)
+        }
     }
 
-    private fun showStagePanel() {
+    private fun showStagePanel(sig: FloatArray, presetIdx: Int, initial: StageRules) {
         val themed = ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault)
-        val edit = StageRules().apply { copyFrom(stage) }
+        val edit = StageRules().apply { copyFrom(initial) }
         val root = FrameLayout(themed).apply { setBackgroundColor(Color.argb(60, 0, 0, 0)) }
         val board = StageRulesView(themed).apply {
             geo = settings.geometry
@@ -716,18 +850,13 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(maskRow("首消不能消", { edit.antiMask }, { edit.antiMask = it }))
         panel.addView(rowOf(
             btn("清除全部") {
-                edit.clear()
-                comboBtn.text = comboLabel(); firstBtn.text = firstLabel(); exactBtn.text = exactLabel()
-                stickyBtn.text = stickyLabel(); fireBtn.text = fireLabel()
-                closeStagePanel(); showStagePanelWith(edit)
+                closeStagePanel()
+                showStagePanel(sig, presetIdx, StageRules())
             },
             btn("取消") { closeStagePanel() },
             btn("完成") {
-                stage.copyFrom(edit)
-                stageStore.save(stage)
                 closeStagePanel()
-                updateBar()
-                toast("關卡機制：${stage.summary()}")
+                saveStagePreset(sig, presetIdx, edit)
             },
         ))
         refresh()
@@ -748,12 +877,31 @@ class AutoTurnService : AccessibilityService() {
         stageRoot = root
     }
 
-    /** 「清除全部」後以清空的設定重開畫面（讓所有按鈕文字一致） */
-    private fun showStagePanelWith(edit: StageRules) {
-        val saved = StageRules().apply { copyFrom(stage) }
-        stage.copyFrom(edit)
-        showStagePanel()
-        stage.copyFrom(saved)
+    /** 記住（或更新、刪除）這一關：敵人畫面特徵 ＋ 機制 */
+    private fun saveStagePreset(sig: FloatArray, presetIdx: Int, edit: StageRules) {
+        val list = presetStore.load()
+        val idx = if (presetIdx in list.indices) presetIdx else -1
+        if (edit.isEmpty()) {
+            if (idx >= 0) {
+                list.removeAt(idx)
+                toast("已刪除記住的關卡 ${idx + 1}，這關會照一般盤打")
+            } else {
+                toast("沒有設定機制，這關會照一般盤打")
+            }
+        } else if (idx >= 0) {
+            list[idx] = StagePreset(sig, StageRules().apply { copyFrom(edit) })
+            toast("已更新關卡 ${idx + 1}：${edit.summary()}")
+        } else {
+            list.add(StagePreset(sig, StageRules().apply { copyFrom(edit) }))
+            toast("已記住關卡 ${list.size}：${edit.summary()}。之後遇到會自動套用")
+        }
+        presetStore.save(list)
+        presets = list
+        activePreset = -1
+        applyStageFor(null, settings.geometry)
+        val (now, _) = StageMatcher.best(sig, presets)
+        if (now >= 0) { activePreset = now; stage = StageRules().apply { copyFrom(presets[now].rules) } }
+        updateBar()
     }
 
     private fun closeStagePanel() {
@@ -769,10 +917,10 @@ class AutoTurnService : AccessibilityService() {
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
         busy = true
         updateBar("…")
-        capture { frame ->
+        captureClean { frame ->
             busy = false
             updateBar()
-            if (frame == null) { toast("截圖失敗"); return@capture }
+            if (frame == null) { toast("截圖失敗"); return@captureClean }
             calibFrame = frame
             showCalibration(frame)
         }

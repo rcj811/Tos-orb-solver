@@ -71,13 +71,37 @@ class AppSettings(context: Context) {
     }
 }
 
-/** 關卡機制的存取 */
-class StageRuleStore(context: Context) {
+/** 記住的關卡（敵人畫面特徵 ＋ 機制）的存取 */
+class StagePresetStore(context: Context) {
     private val sp = context.getSharedPreferences("stage", Context.MODE_PRIVATE)
 
-    fun load(): StageRules = StageRules().also { r -> sp.getString("rules", null)?.let { r.deserialize(it) } }
+    fun load(): MutableList<StagePreset> {
+        val out = ArrayList<StagePreset>()
+        runCatching {
+            val arr = org.json.JSONArray(sp.getString("presets", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val sig = o.getString("sig").split(',').map { it.toFloat() }.toFloatArray()
+                val r = StageRules().apply { deserialize(o.getString("rules")) }
+                out.add(StagePreset(sig, r))
+            }
+        }
+        return out
+    }
 
-    fun save(r: StageRules) = sp.edit().putString("rules", r.serialize()).apply()
+    fun save(list: List<StagePreset>) {
+        val arr = org.json.JSONArray()
+        for (p in list) {
+            arr.put(org.json.JSONObject()
+                .put("sig", p.sig.joinToString(",") { String.format(java.util.Locale.US, "%.3f", it) })
+                .put("rules", p.rules.serialize()))
+        }
+        sp.edit().putString("presets", arr.toString()).apply()
+    }
+
+    val count: Int get() = load().size
+
+    fun clear() = sp.edit().remove("presets").apply()
 }
 
 /** 點擊規則的存取（JSON） */
@@ -91,7 +115,8 @@ class RuleStore(context: Context) {
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val sig = o.getString("sig").split(',').map { it.toFloat() }.toFloatArray()
-                out.add(TapRule(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("size").toFloat(), sig))
+                out.add(TapRule(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("size").toFloat(), sig,
+                    o.optInt("act", TapRule.ACTION_TAP)))
             }
         }
         return out
@@ -105,6 +130,7 @@ class RuleStore(context: Context) {
             o.put("y", r.y.toDouble())
             o.put("size", r.size.toDouble())
             o.put("sig", r.sig.joinToString(",") { String.format(java.util.Locale.US, "%.3f", it) })
+            o.put("act", r.action)
             arr.put(o)
         }
         sp.edit().putString("rules", arr.toString()).apply()

@@ -112,6 +112,11 @@ class MainActivity : Activity() {
             refreshAuto()
         }
         root.addView(row(undoRuleBtn, clearRulesBtn))
+        root.addView(button("清除所有記住的關卡") {
+            StagePresetStore(this).clear()
+            AutoTurnService.instance?.reloadModel()
+            refreshAuto()
+        })
 
         root.addView(note(
             "開啟步驟（只需一次）：\n" +
@@ -122,9 +127,12 @@ class MainActivity : Activity() {
                 "4. 教它過關卡（使用者設定）：在結算、再次挑戰、選戰友、出戰等畫面，按「＋」再點一下要按的按鈕，" +
                 "然後自己按那個按鈕進到下一個畫面，重複到回到戰鬥為止。\n" +
                 "5. 有特殊機制的關卡（拼圖盾、Combo 盾、首消盾、多屬性盾、燃燒、黑洞、火焰區、漩渦、黏手路徑…）：" +
-                "按工作列「關」，選筆刷後點盤面格子畫出拼圖盾形狀等，按「完成」。換到一般關卡記得「清除全部」。\n" +
+                "第一次遇到時按工作列「關」，選筆刷後點盤面格子畫出拼圖盾形狀等，按「完成」。" +
+                "程式會記住這關的敵人畫面，之後遇到同一關會自動判斷並套用（「關」按鈕變黃）；沒記過的關卡照一般盤打。\n" +
+                "　過不了才交給你：套用機制後連續 3 回合破不了、或看到「停止畫面」（用「＋」切到「看到就停止」錄製，例如戰敗、體力不足），會停止並震動提醒。\n" +
                 "6. 按 ▶ 自動執行：戰鬥中自動轉珠，戰鬥外看到記住的畫面就自動點，可一直重複刷關。按 ■ 停止。\n" +
-                "　畫面卡住（同一個按鈕連點 6 次）或 3 分鐘沒事做會自動停止。\n\n" +
+                "　畫面卡住（同一個按鈕連點 6 次）或 3 分鐘沒事做會自動停止。\n" +
+                "7. 工作列 ✕ 連按兩下可關閉轉珠助手；要再使用時打開本 App，會自動詢問是否重新開啟。\n\n" +
                 "小提醒：遊戲沒跟上拖曳就把「每步」調慢；斜轉常失敗就改成 4 方向。體力用完的畫面不要錄規則，免得一直點。\n" +
                 "自動操作違反遊戲使用條款，有被封帳號的風險，請自行斟酌。"
         ))
@@ -284,7 +292,7 @@ class MainActivity : Activity() {
         val nRules = ruleStore.count
         rulesText.text = (if (nRules == 0) "點擊規則：尚未設定（▶ 自動執行只會轉珠，不會自動過關卡）"
         else "點擊規則：$nRules 條（自動執行時，看到記住的畫面就會自動點）") +
-            "\n關卡機制：" + StageRuleStore(this).load().summary() + "（在工作列「關」設定）"
+            "\n記住的關卡：" + StagePresetStore(this).count + " 個（在工作列「關」設定一次，之後自動判斷套用）"
         undoRuleBtn.isEnabled = nRules > 0
         clearRulesBtn.isEnabled = nRules > 0
     }
