@@ -233,6 +233,14 @@ class ColorStore(context: Context) {
             for (j in 0..2) m.centroids[k][j] = sp.getFloat("c${k}_$j", m.centroids[k][j])
             m.weights[k] = sp.getFloat("w$k", m.weights[k])
         }
+        runCatching {
+            val arr = org.json.JSONArray(sp.getString("protos", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val f = o.getString("f").split(',').map { it.toFloat() }.toFloatArray()
+                if (f.size == 3) { m.protos.add(f); m.protoLabels.add(o.getInt("c")) }
+            }
+        }
         return m
     }
 
@@ -243,6 +251,10 @@ class ColorStore(context: Context) {
             e.putFloat("w$k", m.weights[k])
         }
         e.putInt("learned", learnedSamples + addedSamples)
+        val arr = org.json.JSONArray()
+        for (i in m.protos.indices) arr.put(org.json.JSONObject().put("c", m.protoLabels[i])
+            .put("f", m.protos[i].joinToString(",") { String.format(java.util.Locale.US, "%.4f", it) }))
+        e.putString("protos", arr.toString())
         e.apply()
     }
 

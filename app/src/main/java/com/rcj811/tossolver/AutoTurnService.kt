@@ -1125,7 +1125,7 @@ class AutoTurnService : AccessibilityService() {
         })
 
         view.onGeometryChanged = { recognizeInCalibration() }
-        view.onLabelsChanged = { updateCalibInfo() }
+        view.onLabelsChanged = { relabelFromEdits(); updateCalibInfo() }
         view.geo = startGeo
 
         wm.addView(root, overlayParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, true))
@@ -1154,12 +1154,32 @@ class AutoTurnService : AccessibilityService() {
         updateCalibInfo()
     }
 
+    /**
+     * 使用者改了某幾顆的顏色 → 把它們當範例珠，立刻重新判斷其他沒改過的格子。
+     * 同種珠子會自動跟著更新；和任何範例都不像的格子顯示「?」，提示下一個要標的種類。
+     */
+    private fun relabelFromEdits() {
+        val v = calibView ?: return
+        val f = calibFrame ?: return
+        val base = OrbRecognizer.recognize(f, v.geo, model, stateModel)
+        val work = model.copy()
+        for (i in 0 until v.geo.cells) if (v.edited[i] && v.labels[i] in 0..5 && v.states[i] == OrbState.NORMAL) {
+            work.addProto(base.features[i], v.labels[i])
+        }
+        val rec = OrbRecognizer.recognize(f, v.geo, work, stateModel)
+        for (i in 0 until v.geo.cells) {
+            if (!v.edited[i]) { v.labels[i] = rec.colors[i]; v.conf[i] = rec.confidence[i] }
+            if (!v.stateEdited[i]) v.states[i] = rec.states[i]
+        }
+        v.invalidate()
+    }
+
     private fun updateCalibInfo() {
         val v = calibView ?: return
         val n = v.geo.cells
         val unknown = (0 until n).count { !v.edited[it] && v.conf[it] < OrbRecognizer.UNKNOWN_CONF }
         val fixed = (0 until n).count { v.edited[it] }
-        calibInfo?.text = "把格線對齊盤面（拖曳移動、右下圓點縮放）。點格子＝改顏色，長按格子＝切換符石類別（強化／風化黏腐／觸電／冰封石化／自訂）；沒有合適的按「＋類別」新增。\n" +
+        calibInfo?.text = "把格線對齊盤面（拖曳移動、右下圓點縮放）。點格子＝改顏色（每種顏色改一顆，同種的會自動跟著更新），長按格子＝切換符石類別（強化／風化黏腐／觸電／冰封石化／自訂）；沒有合適的按「＋類別」新增。\n" +
             "無法辨識 $unknown 格・已修正 $fixed 格・累計學習 ${colorStore.learnedSamples} 格"
     }
 
@@ -1218,7 +1238,11 @@ class AutoTurnService : AccessibilityService() {
             // 狀態：每個確定的格子都當作樣本（包含普通珠，讓模型分得出「普通」和特殊符石）
             rec.stateDesc?.let { sDescs.add(it[i]); sLabels.add(v.states[i]) }
             // 顏色：只用普通珠學習（強化、風化等外觀不同，不混進顏色中心）
-            if (k in 0..5 && v.states[i] == OrbState.NORMAL) { feats.add(rec.features[i]); labels.add(k) }
+            if (k in 0..5 && v.states[i] == OrbState.NORMAL) {
+                feats.add(rec.features[i]); labels.add(k)
+                // 使用者親手改過的格子 → 存成範例珠（之後同種珠子都以它為準）
+                if (v.edited[i]) model.addProto(rec.features[i], k)
+            }
         }
         val used = model.learn(feats, labels)
         colorStore.save(model, used)

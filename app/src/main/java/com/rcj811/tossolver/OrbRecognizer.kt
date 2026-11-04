@@ -213,16 +213,63 @@ class Recognition(
     fun totalConfidence() = (0 until cells).sumOf { confidence[it].toDouble() }.toFloat()
 }
 
-/** 六色的顏色中心（特徵空間），可依使用者校正逐步學習 */
-class ColorModel(val centroids: Array<FloatArray>, val weights: FloatArray) {
+/**
+ * 顏色模型：
+ *  1. 六色的顏色中心（預設值 ＋ 慢慢學習）——標準符石外觀用逐點投票辨識
+ *  2. 使用者標過的「範例珠」——換了符石外觀（例如石頭藤蔓造型）時，每種顏色標一顆就能認出其他同種珠
+ *     （實測截圖：預設方法 6/30 → 每色標 1 顆後其餘 24 顆全對；同色差 ≤0.02、異色差 ≥0.18）
+ */
+class ColorModel(
+    val centroids: Array<FloatArray>,
+    val weights: FloatArray,
+    val protos: MutableList<FloatArray> = ArrayList(),
+    val protoLabels: MutableList<Int> = ArrayList(),
+) {
     companion object {
         const val PRIOR = 5f
         private const val ADAPT_CAP = 60f
         private const val MAX_WEIGHT = 200f
+        const val PROTO_MATCH = 0.10f      // 與範例珠的距離小於此值才算同一種
+        private const val PROTO_MERGE = 0.03f
+        private const val MAX_PROTOS_PER_COLOR = 12
 
         fun defaults(): ColorModel {
             val c = Array(6) { k -> FloatArray(3).also { OrbRecognizer.feature(OrbRecognizer.DEFAULT_RGB[k], it) } }
             return ColorModel(c, FloatArray(6) { PRIOR })
+        }
+    }
+
+    fun copy() = ColorModel(
+        Array(6) { centroids[it].copyOf() }, weights.copyOf(),
+        protos.map { it.copyOf() }.toMutableList(), protoLabels.toMutableList(),
+    )
+
+    fun hasProto(color: Int) = protoLabels.contains(color)
+
+    /** 最近的範例珠：回傳 (顏色, 距離)；沒有範例回傳 (-1, ∞) */
+    fun nearestProto(f: FloatArray): Pair<Int, Float> {
+        var best = -1
+        var bd = Float.MAX_VALUE
+        for (i in protos.indices) {
+            val p = protos[i]
+            val dx = f[0] - p[0]; val dy = f[1] - p[1]; val dz = f[2] - p[2]
+            val d = kotlin.math.sqrt(dx * dx + dy * dy + dz * dz)
+            if (d < bd) { bd = d; best = protoLabels[i] }
+        }
+        return best to bd
+    }
+
+    /** 新增範例珠（使用者在校正畫面點選的顏色）；太接近的合併 */
+    fun addProto(f: FloatArray, color: Int) {
+        if (color !in 0..5) return
+        for (i in protos.indices) if (protoLabels[i] == color) {
+            val p = protos[i]
+            val d = kotlin.math.sqrt((f[0] - p[0]) * (f[0] - p[0]) + (f[1] - p[1]) * (f[1] - p[1]) + (f[2] - p[2]) * (f[2] - p[2]))
+            if (d < PROTO_MERGE) { for (j in 0..2) p[j] = (p[j] + f[j]) / 2f; return }
+        }
+        protos.add(f.copyOf()); protoLabels.add(color)
+        if (protoLabels.count { it == color } > MAX_PROTOS_PER_COLOR) {
+            val drop = protoLabels.indexOf(color); protos.removeAt(drop); protoLabels.removeAt(drop)
         }
     }
 
@@ -251,7 +298,17 @@ class ColorModel(val centroids: Array<FloatArray>, val weights: FloatArray) {
         for (i in features.indices) {
             val k = labels[i]
             if (k !in 0..5) continue
-            for (j in 0..2) centroids[k][j] += rate * (features[i][j] - centroids[k][j])
+            val f = features[i]
+            for (j in 0..2) centroids[k][j] += rate * (f[j] - centroids[k][j])
+            // 範例珠也跟著慢慢貼近現在的畫面（亮度、特效變化）
+            var near = -1
+            var nd = Float.MAX_VALUE
+            for (q in protos.indices) if (protoLabels[q] == k) {
+                val p = protos[q]
+                val d = (f[0] - p[0]) * (f[0] - p[0]) + (f[1] - p[1]) * (f[1] - p[1]) + (f[2] - p[2]) * (f[2] - p[2])
+                if (d < nd) { nd = d; near = q }
+            }
+            if (near >= 0 && kotlin.math.sqrt(nd) < PROTO_MATCH) for (j in 0..2) protos[near][j] += rate * 2 * (f[j] - protos[near][j])
             n++
         }
         return n
@@ -384,6 +441,17 @@ object OrbRecognizer {
             colors[i] = best
             conf[i] = if (total == 0) 0f else votes[best].toFloat() / total
             if (got > 0) { feats[i][0] = sx / got; feats[i][1] = sy / got; feats[i][2] = sz / got }
+            // 使用者標過範例珠：以範例為準
+            if (model.protos.isNotEmpty() && got > 0) {
+                val (pc, pd) = model.nearestProto(feats[i])
+                if (pd < ColorModel.PROTO_MATCH) {
+                    colors[i] = pc
+                    conf[i] = 1f - 0.5f * pd / ColorModel.PROTO_MATCH
+                } else if (model.hasProto(colors[i])) {
+                    // 投票結果是「已有範例的顏色」卻和範例不像 → 自相矛盾，當作看不出來
+                    conf[i] = 0f
+                }
+            }
         }
         if (stateModel == null) return Recognition(geo.rows, colors, conf, feats)
         val states = IntArray(n)
