@@ -83,6 +83,8 @@ class AutoTurnService : AccessibilityService() {
     private var lastGoalsOk = true
     private var unmetStreak = 0
     private var closeArmedAt = 0L
+    private var lastActionAt = 0L     // 上次轉珠或點擊的時間（用來提示「在等什麼」）
+    private var lastHintAt = 0L
     private lateinit var model: ColorModel
     private var rules: List<TapRule> = emptyList()
     private val main = Handler(Looper.getMainLooper())
@@ -447,6 +449,7 @@ class AutoTurnService : AccessibilityService() {
         lastSeen = null; stableCount = 0; lastActed = null
         ruleTapAt.clear(); lastRule = -1; sameRuleTaps = 0
         turnsDone = 0; rulesTapped = 0; unmetStreak = 0
+        lastActionAt = SystemClock.uptimeMillis(); lastHintAt = 0L
         presets = presetStore.load()
         lastProgressAt = SystemClock.uptimeMillis()
         updateBar()
@@ -483,18 +486,34 @@ class AutoTurnService : AccessibilityService() {
         val now = SystemClock.uptimeMillis()
 
         // 1) 戰鬥中：盤面靜止就轉珠
+        //    和「轉」一樣容許少數格子認不出來（當障礙避開）；靜止判斷只比較認得出來的格子
         val geo = settings.geometry
         val rec = OrbRecognizer.recognize(frame, geo, model)
-        val board = rec.colors.copyOf(geo.cells)
-        val ready = rec.minConfidence() >= OrbRecognizer.READY_CONF &&
-            NativeSolver.countCombos(board, geo.rows) == 0
-        val alreadyDone = OrbRecognizer.sameBoard(board, lastActed) && now - lastActedAt < 5000
+        val board = OrbRecognizer.maskedBoard(rec)
+        val unknown = rec.unknownCount()
+        val solveCells = IntArray(geo.cells) { i -> if (rec.isUnknown(i)) rec.colors[i] or 0x20 else rec.colors[i] }
+        val pending = NativeSolver.countCombos(solveCells, geo.rows)
+        val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells) && pending == 0
+        val alreadyDone = OrbRecognizer.sameMasked(board, lastActed) && now - lastActedAt < 5000
+        val waitReason = when {
+            unknown > OrbRecognizer.maxUnknown(geo.cells) -> "看不到盤面（$unknown 格認不出來）"
+            pending > 0 -> "盤面還在消除 / 落珠中"
+            alreadyDone -> "剛轉過這盤，等新盤面"
+            else -> "等盤面靜止"
+        }
+        if (now - lastActionAt > 8000 && now - lastHintAt > 12000) {
+            lastHintAt = now
+            toast("自動執行中，等待：$waitReason" +
+                if (!ready && rules.isEmpty()) "（戰鬥外沒有點擊規則可用）" else "")
+        }
         if (ready && !alreadyDone) {
-            if (OrbRecognizer.sameBoard(board, lastSeen)) stableCount++ else { stableCount = 1; lastSeen = board }
+            if (OrbRecognizer.sameMasked(board, lastSeen)) stableCount++ else { stableCount = 1 }
+            lastSeen = board
             if (stableCount >= 2) {
                 lastActed = board
                 lastActedAt = now
                 lastProgressAt = now
+                lastActionAt = now
                 stableCount = 0
                 sameRuleTaps = 0
                 // 出手前用乾淨截圖判斷關卡、套用機制
@@ -540,6 +559,7 @@ class AutoTurnService : AccessibilityService() {
                 }
                 ruleTapAt[idx] = now
                 lastProgressAt = now
+                lastActionAt = now
                 val r = rules[idx]
                 tap(r.x, r.y) { ok ->
                     if (ok) rulesTapped++

@@ -144,6 +144,18 @@ class OrbRecognizerTest {
     }
 
     @Test
+    fun stableBoardIgnoresFlickeringCells() {
+        val a = IntArray(30) { it % 6 }
+        val b = a.copyOf().also { it[3] = -1; it[17] = -1 }          // 兩格發光閃爍、這次認不出來
+        assertTrue(OrbRecognizer.sameMasked(a, b))
+        val c = a.copyOf().also { it[5] = (it[5] + 1) % 6 }         // 真的有一格不同
+        assertTrue(!OrbRecognizer.sameMasked(a, c))
+        val d = IntArray(30) { if (it < 12) -1 else it % 6 }         // 太多格認不出來，不能算同一盤
+        assertTrue(!OrbRecognizer.sameMasked(a, d))
+        assertEquals(4, OrbRecognizer.maxUnknown(30))
+    }
+
+    @Test
     fun geometryHelpers() {
         val g = BoardGeometry(10f, 100f, 50f, 5)
         assertEquals(35f, g.centerX(0), 1e-4f)

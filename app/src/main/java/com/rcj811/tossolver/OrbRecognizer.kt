@@ -246,6 +246,29 @@ object OrbRecognizer {
         return if (bestScore >= rows * 6 * 0.55f) refined else null
     }
 
+    /** 自動執行時允許無法辨識的格子比例（這些格子求解時當障礙避開） */
+    const val MAX_UNKNOWN_FRAC = 0.15f
+
+    fun maxUnknown(cells: Int) = max(2, (cells * MAX_UNKNOWN_FRAC).toInt())
+
+    /** 辨識結果轉成盤面，無法辨識的格子記為 -1 */
+    fun maskedBoard(rec: Recognition): IntArray = IntArray(rec.cells) { if (rec.isUnknown(it)) -1 else rec.colors[it] }
+
+    /**
+     * 兩次截圖是否為同一盤面：只比較兩邊都認得出來的格子（發光、閃爍的珠不影響），
+     * 且兩邊都認得的格子要佔 70% 以上。
+     */
+    fun sameMasked(a: IntArray?, b: IntArray?): Boolean {
+        if (a == null || b == null || a.size != b.size || a.isEmpty()) return false
+        var both = 0
+        for (i in a.indices) {
+            if (a[i] < 0 || b[i] < 0) continue
+            if (a[i] != b[i]) return false
+            both++
+        }
+        return both >= a.size * 0.7f
+    }
+
     /** 兩次辨識結果是否為同一盤面（只比較有信心的格子） */
     fun sameBoard(a: IntArray?, b: IntArray?): Boolean {
         if (a == null || b == null || a.size != b.size) return false
