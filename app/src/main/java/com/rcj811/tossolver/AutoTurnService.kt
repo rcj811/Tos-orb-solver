@@ -37,6 +37,7 @@ import kotlin.math.abs
  * 自動轉珠服務（無障礙服務）＋懸浮工作列
  *
  * 工作列按鈕：
+ *  （橫向工作列，預設在畫面上方中央，位置會記住）
  *  ⠿  拖曳移動；點一下收合 / 展開
  *  ▶  自動執行（全自動）：戰鬥中自動轉珠；戰鬥外依「點擊規則」自動點擊；再按一次（■）停止
  *  轉  只轉這一回合
@@ -196,15 +197,15 @@ class AutoTurnService : AccessibilityService() {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor(color))
             }
-            layoutParams = LinearLayout.LayoutParams(size, size).apply { setMargins(0, dp(3), 0, dp(3)) }
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { setMargins(dp(3), 0, dp(3), 0) }
             if (onClick != null) setOnClickListener { onClick() }
         }
     }
 
     private fun addToolbar() {
         val b = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(5), dp(5), dp(5), dp(5))
             background = GradientDrawable().apply {
                 cornerRadius = dp(28).toFloat()
@@ -228,8 +229,10 @@ class AutoTurnService : AccessibilityService() {
         foldable.clear()
         foldable.addAll(listOf(once, add, cal, stg))
         val lp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true).apply {
-            x = resources.displayMetrics.widthPixels - dp(66)
-            y = (resources.displayMetrics.heightPixels * 0.14f).toInt()
+            // 預設：畫面上方中央（6 顆按鈕約 310dp 寬）；拖曳過就用上次的位置
+            val dm = resources.displayMetrics
+            x = if (settings.barX >= 0) settings.barX else maxOf(0, (dm.widthPixels - dp(310)) / 2)
+            y = if (settings.barY >= 0) settings.barY else (dm.heightPixels * 0.05f).toInt()
         }
         wm.addView(b, lp)
         bar = b
@@ -280,6 +283,9 @@ class AutoTurnService : AccessibilityService() {
                 MotionEvent.ACTION_UP -> if (!dragging) {
                     collapsed = !collapsed
                     updateBar()
+                } else {
+                    settings.barX = maxOf(0, lp.x)
+                    settings.barY = maxOf(0, lp.y)
                 }
             }
             return true

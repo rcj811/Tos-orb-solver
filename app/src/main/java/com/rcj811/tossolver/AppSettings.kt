@@ -41,6 +41,14 @@ class AppSettings(context: Context) {
         get() = sp.getInt("dirs", 8)
         set(v) = sp.edit().putInt("dirs", v).apply()
 
+    /** 懸浮工作列位置（-1 = 預設：上方中央） */
+    var barX: Int
+        get() = sp.getInt("barX", -1)
+        set(v) = sp.edit().putInt("barX", v).apply()
+    var barY: Int
+        get() = sp.getInt("barY", -1)
+        set(v) = sp.edit().putInt("barY", v).apply()
+
     /** 自動拖曳前先顯示路徑多久（毫秒） */
     val previewMs: Long get() = 250L
 
