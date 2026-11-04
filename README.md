@@ -4,9 +4,10 @@ Beam search 轉珠求解核心（C++）＋ Android App。目前是 **M1：手動
 
 ## 下載 APK
 
-每次推送到 `main`，GitHub Actions 會自動測試、編譯，並把 APK 發布到 **Releases**（最新一版標記為 Latest）。
-在手機打開 GitHub App 或網頁 → 本 repo → Releases → 下載 `tos-orb-solver-N.apk` 安裝即可（首次需允許安裝未知來源 App）。
-簽章固定，新版可直接覆蓋安裝。
+**最新版直接下載：<https://github.com/rcj811/Tos-orb-solver/releases/latest/download/tos-orb-solver.apk>**
+
+每次推送到 `main`，GitHub Actions 會自動測試、編譯，並把 APK 發布到 **Releases**（最新一版標記為 Latest），上面的連結永遠指向最新版。
+首次安裝需允許「安裝未知來源 App」。簽章固定，新版可直接覆蓋安裝。
 
 ## 使用方式
 

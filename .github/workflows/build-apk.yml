@@ -59,12 +59,14 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace --no-daemon
 
       - name: 整理檔名
-        run: cp app/build/outputs/apk/debug/app-debug.apk "tos-orb-solver-${{ github.run_number }}.apk"
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk "tos-orb-solver-${{ github.run_number }}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk tos-orb-solver.apk   # 固定檔名，供「最新版」永久連結
 
       - uses: actions/upload-artifact@v4
         with:
           name: tos-orb-solver-apk
-          path: tos-orb-solver-*.apk
+          path: tos-orb-solver-${{ github.run_number }}.apk
 
       - name: 發布到 Releases（手機可直接下載）
         uses: softprops/action-gh-release@v2
@@ -72,6 +74,8 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: 轉珠求解器 build ${{ github.run_number }}
           body: 由 commit ${{ github.sha }} 自動編譯。下載 APK 後安裝即可（首次需允許安裝未知來源 App）。
-          files: tos-orb-solver-*.apk
-          prerelease: true
+          files: |
+            tos-orb-solver-${{ github.run_number }}.apk
+            tos-orb-solver.apk
+          prerelease: false
           make_latest: true
