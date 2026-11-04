@@ -27,6 +27,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
@@ -41,6 +42,7 @@ import kotlin.math.abs
  *  轉  只轉這一回合
  *  ＋  新增點擊規則：點一下畫面上要自動按的位置（例如「再次挑戰」）
  *  校  校正盤面位置與顏色
+ *  關  這一關的機制（拼圖盾、Combo 盾、多屬性盾、燃燒、黑洞、火焰區、漩渦…）
  *
  * 截圖只在手機上即時處理，不儲存、不上傳。
  */
@@ -69,6 +71,8 @@ class AutoTurnService : AccessibilityService() {
     private lateinit var settings: AppSettings
     private lateinit var colorStore: ColorStore
     private lateinit var ruleStore: RuleStore
+    private lateinit var stageStore: StageRuleStore
+    private var stage = StageRules()
     private lateinit var model: ColorModel
     private var rules: List<TapRule> = emptyList()
     private val main = Handler(Looper.getMainLooper())
@@ -79,6 +83,8 @@ class AutoTurnService : AccessibilityService() {
     private var barLp: WindowManager.LayoutParams? = null
     private var playBtn: TextView? = null
     private var onceBtn: TextView? = null
+    private var stageBtn: TextView? = null
+    private var stageRoot: FrameLayout? = null
     private val foldable = ArrayList<View>()
     private var collapsed = false
 
@@ -115,6 +121,8 @@ class AutoTurnService : AccessibilityService() {
         settings = AppSettings(this)
         colorStore = ColorStore(this)
         ruleStore = RuleStore(this)
+        stageStore = StageRuleStore(this)
+        stage = stageStore.load()
         model = colorStore.load()
         rules = ruleStore.load()
         addPathView()
@@ -141,6 +149,7 @@ class AutoTurnService : AccessibilityService() {
         stopAuto(null)
         closeCalibration()
         closeRecord()
+        closeStagePanel()
         for (v in listOf<View?>(bar, pathView)) v?.let { runCatching { wm.removeView(it) } }
         bar = null
         pathView = null
@@ -209,13 +218,15 @@ class AutoTurnService : AccessibilityService() {
         val once = barButton("轉", "#C62828") { onOnceTap() }
         val add = barButton("＋", "#1565C0") { startRecordRule() }
         val cal = barButton("校", "#6A1B9A") { openCalibration() }
+        val stg = barButton("關", "#546E7A") { openStagePanel() }
         b.addView(handle)
         b.addView(play)
         b.addView(once)
         b.addView(add)
         b.addView(cal)
+        b.addView(stg)
         foldable.clear()
-        foldable.addAll(listOf(once, add, cal))
+        foldable.addAll(listOf(once, add, cal, stg))
         val lp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true).apply {
             x = resources.displayMetrics.widthPixels - dp(66)
             y = (resources.displayMetrics.heightPixels * 0.14f).toInt()
@@ -225,6 +236,7 @@ class AutoTurnService : AccessibilityService() {
         barLp = lp
         playBtn = play
         onceBtn = once
+        stageBtn = stg
         updateBar()
     }
 
@@ -237,6 +249,7 @@ class AutoTurnService : AccessibilityService() {
         setColor(playBtn, if (running) "#D32F2F" else "#2E7D32")
         onceBtn?.text = onceLabel ?: "轉"
         setColor(onceBtn, if (busy && !running) "#F57C00" else "#C62828")
+        setColor(stageBtn, if (stage.isEmpty()) "#546E7A" else "#F9A825")
         for (v in foldable) v.visibility = if (collapsed) View.GONE else View.VISIBLE
     }
 
@@ -274,7 +287,7 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun checkReady(): Boolean {
-        if (calibRoot != null || recordView != null) return false
+        if (calibRoot != null || recordView != null || stageRoot != null) return false
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return false }
         if (!settings.hasGeometry) {
             toast("第一次使用：先校正盤面位置")
@@ -456,14 +469,17 @@ class AutoTurnService : AccessibilityService() {
         val beam = settings.beam
         val maxPath = settings.maxPathFor(geo.rows)
         val dirs = settings.dirs
+        val ruleInts = stage.toInts()
+        val hasStage = !stage.isEmpty()
         worker.execute {
-            val res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs))
+            val res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts))
             main.post {
                 if (!res.found || res.dirs.isEmpty()) {
                     toast("找不到可行路徑")
                     done(false)
                     return@post
                 }
+                if (hasStage && !res.goalsMet) toast("這盤無法完全符合關卡機制（${stage.summary()}），改打最多 combo")
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)
                 updateBar("${res.combos}")
@@ -521,7 +537,7 @@ class AutoTurnService : AccessibilityService() {
     // ---------------- 新增點擊規則 ----------------
 
     private fun startRecordRule() {
-        if (calibRoot != null || recordView != null || busy) return
+        if (calibRoot != null || recordView != null || stageRoot != null || busy) return
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
         stopAuto(null)
         busy = true
@@ -573,10 +589,176 @@ class AutoTurnService : AccessibilityService() {
         recordView = null
     }
 
+
+    // ---------------- 關卡機制 ----------------
+
+    private fun openStagePanel() {
+        if (calibRoot != null || recordView != null || stageRoot != null || busy) return
+        if (!settings.hasGeometry) { toast("請先按「校」校正盤面位置"); return }
+        stopAuto(null)
+        showStagePanel()
+    }
+
+    private fun showStagePanel() {
+        val themed = ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault)
+        val edit = StageRules().apply { copyFrom(stage) }
+        val root = FrameLayout(themed).apply { setBackgroundColor(Color.argb(60, 0, 0, 0)) }
+        val board = StageRulesView(themed).apply {
+            geo = settings.geometry
+            rules = edit
+        }
+        root.addView(board, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+
+        val panel = LinearLayout(themed).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(225, 20, 26, 31))
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        val summary = TextView(themed).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setPadding(dp(4), dp(2), dp(4), dp(4))
+        }
+        fun refresh() {
+            summary.text = "目前：${edit.summary()}\n選一種筆刷後點下方盤面格子（再點一次取消）。"
+            board.invalidate()
+        }
+        fun btn(label: String, onClick: (Button) -> Unit) = Button(themed).apply {
+            text = label
+            isAllCaps = false
+            textSize = 12f
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(dp(2), dp(6), dp(2), dp(6))
+            setOnClickListener { onClick(this) }
+        }
+        fun rowOf(vararg vs: View) = LinearLayout(themed).apply {
+            orientation = LinearLayout.HORIZONTAL
+            for (v in vs) addView(v, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+
+        // 筆刷：點盤面格子時要設定的機制
+        val brushNames = arrayOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)", "裂痕", "起點(綠)", "終點(紅)")
+        val brushButtons = ArrayList<Button>()
+        var brush = 0
+        fun paintBrushes() {
+            for (k in brushButtons.indices) brushButtons[k].text = (if (k == brush) "● " else "") + brushNames[k]
+        }
+        for (k in brushNames.indices) brushButtons.add(btn(brushNames[k]) { brush = k; paintBrushes() })
+        paintBrushes()
+        board.onCellTap = { i ->
+            when (brush) {
+                0 -> edit.toggle(i, StageRules.SHIELD)
+                1 -> edit.toggle(i, StageRules.NO_TOUCH)
+                2 -> edit.toggle(i, StageRules.FLAME_END)
+                3 -> edit.toggle(i, StageRules.BLACK_HOLE)
+                4 -> edit.toggle(i, StageRules.CRACK)
+                5 -> edit.green = if (edit.green == i) -1 else i
+                6 -> edit.red = if (edit.red == i) -1 else i
+            }
+            refresh()
+        }
+
+        // 盾 / 條件
+        val comboChoices = intArrayOf(0, 5, 6, 7, 8, 9, 10, 12)
+        val firstChoices = intArrayOf(0, 3, 4, 5, 6, 7)
+        val exactChoices = intArrayOf(-1, 1, 2, 3, 4, 5, 6)
+        fun cycle(a: IntArray, cur: Int): Int { val i = a.indexOf(cur); return a[if (i < 0) 0 else (i + 1) % a.size] }
+        fun comboLabel() = if (edit.comboMin == 0) "Combo盾：無" else "Combo盾 ≥${edit.comboMin}"
+        fun firstLabel() = if (edit.firstMin == 0) "首消盾：無" else "首消 ≥${edit.firstMin}"
+        fun exactLabel() = if (edit.firstExact < 0) "固定首消：無" else "首消剛好 ${edit.firstExact}"
+        val comboBtn = btn(comboLabel()) { b -> edit.comboMin = cycle(comboChoices, edit.comboMin); b.text = comboLabel(); refresh() }
+        val firstBtn = btn(firstLabel()) { b -> edit.firstMin = cycle(firstChoices, edit.firstMin); b.text = firstLabel(); refresh() }
+        val exactBtn = btn(exactLabel()) { b -> edit.firstExact = cycle(exactChoices, edit.firstExact); b.text = exactLabel(); refresh() }
+        fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
+        fun fireLabel() = "火焰路徑：" + if (edit.firePath) "開" else "關"
+        val stickyBtn = btn(stickyLabel()) { b -> edit.sticky = !edit.sticky; b.text = stickyLabel(); refresh() }
+        val fireBtn = btn(fireLabel()) { b -> edit.firePath = !edit.firePath; b.text = fireLabel(); refresh() }
+
+        // 屬性勾選：多屬性盾（必消）與反屬性（首消禁）
+        fun maskRow(title: String, get: () -> Int, set: (Int) -> Unit): LinearLayout {
+            val row = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(TextView(themed).apply { text = title; setTextColor(Color.WHITE); textSize = 12f; setPadding(dp(4), 0, dp(4), 0) })
+            for (c in 0 until 6) {
+                val chip = TextView(themed).apply {
+                    text = StageRules.ORB_SHORT[c]
+                    gravity = Gravity.CENTER
+                    textSize = 14f
+                    setTextColor(Color.WHITE)
+                }
+                fun paint() {
+                    val on = get() shr c and 1 == 1
+                    chip.background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(if (on) BoardView.ORB_COLORS[c] else Color.argb(90, 255, 255, 255))
+                        if (on) setStroke(dp(2), Color.WHITE)
+                    }
+                }
+                paint()
+                chip.setOnClickListener { set(get() xor (1 shl c)); paint(); refresh() }
+                row.addView(chip, LinearLayout.LayoutParams(dp(34), dp(34)).apply { setMargins(dp(3), dp(2), dp(3), dp(2)) })
+            }
+            return row
+        }
+
+        panel.addView(summary)
+        panel.addView(rowOf(brushButtons[0], brushButtons[1], brushButtons[2], brushButtons[3]))
+        panel.addView(rowOf(brushButtons[4], brushButtons[5], brushButtons[6]))
+        panel.addView(rowOf(comboBtn, firstBtn, exactBtn))
+        panel.addView(rowOf(stickyBtn, fireBtn))
+        panel.addView(maskRow("必消(多屬性盾)", { edit.elemMask }, { edit.elemMask = it }))
+        panel.addView(maskRow("首消不能消", { edit.antiMask }, { edit.antiMask = it }))
+        panel.addView(rowOf(
+            btn("清除全部") {
+                edit.clear()
+                comboBtn.text = comboLabel(); firstBtn.text = firstLabel(); exactBtn.text = exactLabel()
+                stickyBtn.text = stickyLabel(); fireBtn.text = fireLabel()
+                closeStagePanel(); showStagePanelWith(edit)
+            },
+            btn("取消") { closeStagePanel() },
+            btn("完成") {
+                stage.copyFrom(edit)
+                stageStore.save(stage)
+                closeStagePanel()
+                updateBar()
+                toast("關卡機制：${stage.summary()}")
+            },
+        ))
+        refresh()
+
+        val scroll = ScrollView(themed).apply { addView(panel) }
+        val maxH = (resources.displayMetrics.heightPixels * 0.45f).toInt()
+        val top = dp(32)
+        // 面板不可蓋到盤面：高度上限 = 盤面頂端 − 上邊距
+        val boardTop = settings.geometry.top.toInt()
+        val h = maxOf(dp(160), minOf(maxH, boardTop - top - dp(4)))
+        root.addView(scroll, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, h).apply {
+            gravity = Gravity.TOP
+            topMargin = top
+            leftMargin = dp(6)
+            rightMargin = dp(6)
+        })
+        wm.addView(root, overlayParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, true))
+        stageRoot = root
+    }
+
+    /** 「清除全部」後以清空的設定重開畫面（讓所有按鈕文字一致） */
+    private fun showStagePanelWith(edit: StageRules) {
+        val saved = StageRules().apply { copyFrom(stage) }
+        stage.copyFrom(edit)
+        showStagePanel()
+        stage.copyFrom(saved)
+    }
+
+    private fun closeStagePanel() {
+        stageRoot?.let { runCatching { wm.removeView(it) } }
+        stageRoot = null
+    }
+
     // ---------------- 校正 ----------------
 
     private fun openCalibration() {
-        if (calibRoot != null || recordView != null || busy) return
+        if (calibRoot != null || recordView != null || stageRoot != null || busy) return
         stopAuto(null)
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
         busy = true

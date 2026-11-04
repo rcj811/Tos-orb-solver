@@ -63,6 +63,15 @@ class AppSettings(context: Context) {
     }
 }
 
+/** 關卡機制的存取 */
+class StageRuleStore(context: Context) {
+    private val sp = context.getSharedPreferences("stage", Context.MODE_PRIVATE)
+
+    fun load(): StageRules = StageRules().also { r -> sp.getString("rules", null)?.let { r.deserialize(it) } }
+
+    fun save(r: StageRules) = sp.edit().putString("rules", r.serialize()).apply()
+}
+
 /** 點擊規則的存取（JSON） */
 class RuleStore(context: Context) {
     private val sp = context.getSharedPreferences("rules", Context.MODE_PRIVATE)

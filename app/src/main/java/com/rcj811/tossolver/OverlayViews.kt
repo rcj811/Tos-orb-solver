@@ -160,3 +160,81 @@ class CalibrationView(context: Context) : View(context) {
         return true
     }
 }
+
+/**
+ * 「關」設定畫面的盤面層：顯示已設定的格子機制，點格子交給 onCellTap 處理（依目前選的筆刷）。
+ */
+class StageRulesView(context: Context) : View(context) {
+    var geo = BoardGeometry(0f, 0f, 100f, 5)
+        set(v) { field = v; invalidate() }
+    var rules = StageRules()
+    var onCellTap: ((Int) -> Unit)? = null
+
+    private val off = IntArray(2)
+    private val density = resources.displayMetrics.density
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; color = Color.argb(200, 255, 255, 255); strokeWidth = 1.5f * density
+    }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 4 * density }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE; textAlign = Paint.Align.CENTER; isFakeBoldText = true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        getLocationOnScreen(off)
+        canvas.save()
+        canvas.translate(-off[0].toFloat(), -off[1].toFloat())
+        val g = geo
+        val s = g.cell
+        for (i in 0 until g.cells) {
+            val x = g.left + (i % 6) * s
+            val y = g.top + (i / 6) * s
+            val f = rules.cellFlags[i]
+            if (f and StageRules.SHIELD != 0) {
+                fill.color = Color.argb(150, 255, 214, 0)
+                canvas.drawRect(x, y, x + s, y + s, fill)
+            }
+            if (f and StageRules.NO_TOUCH != 0) {
+                fill.color = Color.argb(150, 229, 57, 53)
+                canvas.drawRect(x + s * 0.1f, y + s * 0.1f, x + s * 0.9f, y + s * 0.9f, fill)
+            }
+            if (f and StageRules.FLAME_END != 0) {
+                stroke.color = Color.parseColor("#FF6D00")
+                canvas.drawCircle(x + s / 2, y + s / 2, s * 0.38f, stroke)
+            }
+            if (f and StageRules.BLACK_HOLE != 0) {
+                fill.color = Color.argb(220, 0, 0, 0)
+                canvas.drawCircle(x + s / 2, y + s / 2, s * 0.3f, fill)
+            }
+            if (f and StageRules.CRACK != 0) {
+                stroke.color = Color.LTGRAY
+                canvas.drawLine(x + s * 0.2f, y + s * 0.2f, x + s * 0.8f, y + s * 0.8f, stroke)
+                canvas.drawLine(x + s * 0.8f, y + s * 0.2f, x + s * 0.2f, y + s * 0.8f, stroke)
+            }
+            text.textSize = s * 0.3f
+            if (i == rules.green) {
+                fill.color = Color.parseColor("#00C853")
+                canvas.drawCircle(x + s / 2, y + s / 2, s * 0.25f, fill)
+                canvas.drawText("起", x + s / 2, y + s / 2 + s * 0.1f, text)
+            }
+            if (i == rules.red) {
+                fill.color = Color.parseColor("#D50000")
+                canvas.drawCircle(x + s / 2, y + s / 2, s * 0.25f, fill)
+                canvas.drawText("終", x + s / 2, y + s / 2 + s * 0.1f, text)
+            }
+            canvas.drawRect(x, y, x + s, y + s, line)
+        }
+        canvas.restore()
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        val i = geo.cellAt(e.rawX, e.rawY)
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) return i >= 0
+        if (e.actionMasked == MotionEvent.ACTION_UP && i >= 0) {
+            onCellTap?.invoke(i)
+            invalidate()
+        }
+        return true
+    }
+}

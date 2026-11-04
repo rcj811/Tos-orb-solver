@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <random>
+#include <vector>
 
 using namespace tos;
 
@@ -83,6 +84,80 @@ int main() {
         Solution s = solve(b, c8);
         Outcome o = replay(b, s.start, s.dirs, c8);
         CHECK(s.found && o.legal && s.combos >= 9, "6x8 版面可求解（≥ 9 combo）");
+    }
+
+    // 關卡機制：經由 App 使用的整數編碼（rulesFromInts）傳入，確認達成率與路徑合法
+    {
+        struct Case { const char* name; double minRate; void (*setup)(std::vector<int>&); };
+        auto blank = [] {
+            std::vector<int> v(RULES_INTS, 0);
+            v[0] = 1; v[3] = -1; v[8] = 6; v[10] = -1; v[11] = -1;
+            for (int i = 0; i < MAX_CELLS; i++) v[12 + MAX_CELLS + i] = -1;
+            return v;
+        };
+        Case cases[] = {
+            {"拼圖盾（十字）", 0.75, [](std::vector<int>& v) {
+                 for (int i : {8, 13, 14, 15, 20}) v[12 + i] |= CF_SHIELD; }},
+            {"拼圖盾（橫 5）", 0.75, [](std::vector<int>& v) {
+                 for (int i : {13, 14, 15, 16, 17}) v[12 + i] |= CF_SHIELD; }},
+            {"Combo 盾 ≥7", 0.75, [](std::vector<int>& v) { v[1] = 7; }},
+            {"首消盾 ≥5", 0.90, [](std::vector<int>& v) { v[2] = 5; }},
+            {"固定首消 3", 0.90, [](std::vector<int>& v) { v[3] = 3; }},
+            {"三屬性盾（火水木）", 0.60, [](std::vector<int>& v) { v[5] = 0b000111; }},
+            {"首消禁心", 0.90, [](std::vector<int>& v) { v[4] = 1 << HEART; }},
+            {"火焰區（終點）", 0.90, [](std::vector<int>& v) {
+                 for (int i : {3, 16, 27}) v[12 + i] |= CF_FLAME_END; }},
+            {"黑洞（不可停）", 0.90, [](std::vector<int>& v) {
+                 for (int i : {2, 14, 25}) v[12 + i] |= CF_BLACK_HOLE; }},
+            {"綠紅漩渦", 0.90, [](std::vector<int>& v) { v[10] = 0; v[11] = 29; }},
+            {"燃燒＋黏手路徑", 0.0, [](std::vector<int>& v) {
+                 v[6] = 1; for (int i : {9, 20}) v[12 + i] |= CF_NO_TOUCH; }},
+        };
+        for (auto& cs : cases) {
+            std::vector<int> v = blank();
+            cs.setup(v);
+            Rules ru;
+            bool decoded = rulesFromInts(v.data(), (int)v.size(), ru);
+            std::mt19937 r2(77);
+            int met = 0, ok = 0, feasible = 0;
+            const int n = 60;
+            for (int k = 0; k < n; k++) {
+                do { for (int i = 0; i < 30; i++) b[i] = r2() % 6; } while (countCombos(b, 5) > 0);
+                // 必要條件：多屬性盾需每色 ≥3 顆
+                int cnt[6] = {};
+                for (int i = 0; i < 30; i++) cnt[b[i]]++;
+                bool f = true;
+                for (int c = 0; c < 6; c++) if ((ru.elemMask >> c & 1) && cnt[c] < 3) f = false;
+                feasible += f;
+                Solution s = solve(b, cfg, ru);
+                Outcome o = replay(b, s.start, s.dirs, cfg, ru);
+                if (s.found && o.legal && o.combos == s.combos && o.goalsMet == s.goalsMet) ok++;
+                if (s.goalsMet && f) met++;
+            }
+            double rate = feasible ? (double)met / feasible : 0;
+            std::printf("%s：可行盤 %d / %d，達成 %.0f%%\n", cs.name, feasible, n, rate * 100);
+            char msg[128];
+            std::snprintf(msg, sizeof msg, "%s：解碼成功、路徑合法、可行盤達成率 ≥ %.0f%%", cs.name, cs.minRate * 100);
+            CHECK(decoded && ok == n && rate >= cs.minRate, msg);
+        }
+        // 黏手路徑：路徑不得重複經過同一格
+        {
+            std::vector<int> v = blank();
+            v[6] = 1;
+            Rules ru;
+            rulesFromInts(v.data(), (int)v.size(), ru);
+            do { for (int i = 0; i < 30; i++) b[i] = rng() % 6; } while (countCombos(b, 5) > 0);
+            Solution s = solve(b, cfg, ru);
+            bool seen[MAX_CELLS] = {};
+            bool dup = false;
+            int p = s.start;
+            seen[p] = true;
+            for (int d : s.dirs) { p += DY[d] * 6 + DX[d]; if (seen[p]) dup = true; seen[p] = true; }
+            CHECK(s.found && !dup, "黏手路徑：不重複經過同一格");
+        }
+        std::vector<int> bad(5, 0);
+        Rules ru;
+        CHECK(!rulesFromInts(bad.data(), (int)bad.size(), ru) && ru.shieldN == 0, "長度不足的規則視為一般盤");
     }
 
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);

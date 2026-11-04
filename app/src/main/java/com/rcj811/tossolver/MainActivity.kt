@@ -119,7 +119,9 @@ class MainActivity : Activity() {
                 "3. 進入戰鬥，珠子靜止時按「校」→「自動偵測」對齊盤面，顏色不對就點格子修正 →「儲存並學習」。\n" +
                 "4. 教它過關卡（使用者設定）：在結算、再次挑戰、選戰友、出戰等畫面，按「＋」再點一下要按的按鈕，" +
                 "然後自己按那個按鈕進到下一個畫面，重複到回到戰鬥為止。\n" +
-                "5. 按 ▶ 自動執行：戰鬥中自動轉珠，戰鬥外看到記住的畫面就自動點，可一直重複刷關。按 ■ 停止。\n" +
+                "5. 有特殊機制的關卡（拼圖盾、Combo 盾、首消盾、多屬性盾、燃燒、黑洞、火焰區、漩渦、黏手路徑…）：" +
+                "按工作列「關」，選筆刷後點盤面格子畫出拼圖盾形狀等，按「完成」。換到一般關卡記得「清除全部」。\n" +
+                "6. 按 ▶ 自動執行：戰鬥中自動轉珠，戰鬥外看到記住的畫面就自動點，可一直重複刷關。按 ■ 停止。\n" +
                 "　畫面卡住（同一個按鈕連點 6 次）或 3 分鐘沒事做會自動停止。\n\n" +
                 "小提醒：遊戲沒跟上拖曳就把「每步」調慢；斜轉常失敗就改成 4 方向。體力用完的畫面不要錄規則，免得一直點。\n" +
                 "自動操作違反遊戲使用條款，有被封帳號的風險，請自行斟酌。"
@@ -208,8 +210,9 @@ class MainActivity : Activity() {
         resetColorBtn.text = if (learned > 0) "重設顏色學習（已學 $learned 格）" else "顏色學習：尚未校正"
         resetColorBtn.isEnabled = learned > 0
         val nRules = ruleStore.count
-        rulesText.text = if (nRules == 0) "點擊規則：尚未設定（▶ 自動執行只會轉珠，不會自動過關卡）"
-        else "點擊規則：$nRules 條（自動執行時，看到記住的畫面就會自動點）"
+        rulesText.text = (if (nRules == 0) "點擊規則：尚未設定（▶ 自動執行只會轉珠，不會自動過關卡）"
+        else "點擊規則：$nRules 條（自動執行時，看到記住的畫面就會自動點）") +
+            "\n關卡機制：" + StageRuleStore(this).load().summary() + "（在工作列「關」設定）"
         undoRuleBtn.isEnabled = nRules > 0
         clearRulesBtn.isEnabled = nRules > 0
     }
@@ -312,7 +315,7 @@ class MainActivity : Activity() {
         val b = settings.beam
         val d = settings.dirs
         Thread {
-            val res = SolveResult.from(NativeSolver.solve(cells, r, b, 25 + r * 2, d))
+            val res = SolveResult.from(NativeSolver.solve(cells, r, b, 25 + r * 2, d, IntArray(0)))
             runOnUiThread { showResult(res) }
         }.start()
     }

@@ -339,6 +339,33 @@ void setup(const uint8_t* cells, int rows, const Rules& rules, Board& b) {
 
 Rules::Rules() { std::fill(meta, meta + MAX_CELLS, -1); }
 
+bool rulesFromInts(const int* v, int n, Rules& out) {
+    out = Rules();
+    if (!v || n < RULES_INTS || v[0] != 1) return false;
+    out.comboMin = std::max(0, v[1]);
+    out.firstMin = std::max(0, v[2]);
+    out.firstExact = v[3] >= 0 ? v[3] : -1;
+    out.antiMask = v[4] & 0x3F;
+    out.elemMask = v[5] & 0x3F;
+    out.stickyPath = v[6] != 0;
+    out.firePath = v[7] != 0;
+    out.fireSize = std::max(1, std::min(20, v[8]));
+    out.maxHurt = std::max(0, std::min(20, v[9]));
+    out.green = (v[10] >= 0 && v[10] < MAX_CELLS) ? v[10] : -1;
+    out.red = (v[11] >= 0 && v[11] < MAX_CELLS) ? v[11] : -1;
+    for (int i = 0; i < MAX_CELLS; i++) {
+        int f = v[12 + i];
+        if (f & CF_SHIELD) { out.shield[i] = true; out.shieldN++; }
+        out.crack[i] = (f & CF_CRACK) != 0;
+        out.noTouch[i] = (f & CF_NO_TOUCH) != 0;
+        if (f & CF_FLAME_END) { out.flameEnd[i] = true; out.anyFlame = true; }
+        out.blackHole[i] = (f & CF_BLACK_HOLE) != 0;
+        int m = v[12 + MAX_CELLS + i];
+        out.meta[i] = (m >= 0 && m < 6) ? m : -1;
+    }
+    return true;
+}
+
 Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
     auto t0 = std::chrono::steady_clock::now();
     Board b;

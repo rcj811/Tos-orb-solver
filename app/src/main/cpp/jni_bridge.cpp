@@ -20,25 +20,37 @@ bool readCells(JNIEnv* env, jintArray cells, int rows, uint8_t* out) {
 
 extern "C" {
 
-// 回傳 [found, combos, firstCombos, start, ms(整數), 步數, 方向...]
+// rules：StageRules.toInts()；空陣列 = 一般盤
+// 回傳 [found, combos, firstCombos, start, ms, 步數, goalsMet, 方向...]
 JNIEXPORT jintArray JNICALL Java_com_rcj811_tossolver_NativeSolver_solve(JNIEnv* env, jobject /*thiz*/,
                                                                           jintArray cells, jint rows, jint beam,
-                                                                          jint maxPath, jint dirs) {
+                                                                          jint maxPath, jint dirs, jintArray rules) {
     uint8_t b[tos::MAX_CELLS];
-    std::vector<jint> out(6, 0);
+    std::vector<jint> out(7, 0);
     if (readCells(env, cells, rows, b)) {
         tos::Config cfg;
         cfg.rows = rows;
         cfg.beam = beam;
         cfg.maxPath = maxPath;
         cfg.dirs = dirs == 4 ? 4 : 8;
-        tos::Solution s = tos::solve(b, cfg);
+        tos::Rules ru;
+        if (rules != nullptr) {
+            jsize n = env->GetArrayLength(rules);
+            if (n >= tos::RULES_INTS) {
+                std::vector<jint> rv(n);
+                env->GetIntArrayRegion(rules, 0, n, rv.data());
+                std::vector<int> iv(rv.begin(), rv.end());
+                tos::rulesFromInts(iv.data(), (int)iv.size(), ru);
+            }
+        }
+        tos::Solution s = tos::solve(b, cfg, ru);
         out[0] = s.found ? 1 : 0;
         out[1] = s.combos;
         out[2] = s.firstCombos;
         out[3] = s.start;
         out[4] = (jint)s.ms;
         out[5] = (jint)s.dirs.size();
+        out[6] = s.goalsMet ? 1 : 0;
         for (int d : s.dirs) out.push_back(d);
     }
     jintArray arr = env->NewIntArray((jsize)out.size());
