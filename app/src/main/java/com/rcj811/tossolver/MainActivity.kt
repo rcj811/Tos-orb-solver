@@ -25,12 +25,15 @@ class MainActivity : Activity() {
 
     private lateinit var settings: AppSettings
     private lateinit var colorStore: ColorStore
+    private lateinit var ruleStore: RuleStore
 
     // 自動轉珠
     private lateinit var autoStatus: TextView
     private lateinit var enableBtn: Button
     private lateinit var modeBtn: Button
-    private lateinit var contBtn: Button
+    private lateinit var rulesText: TextView
+    private lateinit var undoRuleBtn: Button
+    private lateinit var clearRulesBtn: Button
     private lateinit var stepBtn: Button
     private lateinit var timeBtn: Button
     private lateinit var resetColorBtn: Button
@@ -56,6 +59,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
         colorStore = ColorStore(this)
+        ruleStore = RuleStore(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -76,8 +80,7 @@ class MainActivity : Activity() {
         root.addView(row(enableBtn, button("允許受限設定") { openAppDetails() }))
 
         modeBtn = button("") { settings.autoDrag = !settings.autoDrag; refreshAuto() }
-        contBtn = button("") { settings.continuous = !settings.continuous; refreshAuto() }
-        root.addView(row(modeBtn, contBtn))
+        root.addView(modeBtn)
 
         stepBtn = button("") { settings.stepMs = next(AppSettings.STEP_CHOICES, settings.stepMs); refreshAuto() }
         timeBtn = button("") { settings.timeLimitSec = next(AppSettings.TIME_CHOICES, settings.timeLimitSec); refreshAuto() }
@@ -94,14 +97,31 @@ class MainActivity : Activity() {
         }
         root.addView(resetColorBtn)
 
+        rulesText = note("")
+        root.addView(rulesText)
+        undoRuleBtn = button("刪除最後一條規則") {
+            ruleStore.removeLast()
+            AutoTurnService.instance?.reloadModel()
+            refreshAuto()
+        }
+        clearRulesBtn = button("清除全部規則") {
+            ruleStore.clear()
+            AutoTurnService.instance?.reloadModel()
+            refreshAuto()
+        }
+        root.addView(row(undoRuleBtn, clearRulesBtn))
+
         root.addView(note(
             "開啟步驟（只需一次）：\n" +
                 "1. 按「開啟無障礙設定」→ 已下載的應用程式 →「轉珠助手」→ 開啟。\n" +
                 "　若開關是灰色、顯示「受限設定」：先按「允許受限設定」→ 右上角 ⋮ →「允許受限設定」，再回去開啟。\n" +
-                "2. 畫面上會出現紅色「轉」圓鈕（可拖曳到不擋盤面的位置）。\n" +
-                "3. 進入戰鬥，珠子靜止時「長按」圓鈕 → 按「自動偵測」對齊盤面，顏色不對就點格子修正 →「儲存並學習」。\n" +
-                "4. 之後每回合「點一下」圓鈕就會自動轉珠；開啟「連續自動」則會每回合自動出手，再點一次圓鈕停止。\n\n" +
-                "小提醒：如果遊戲沒跟上拖曳，把「每步」調慢；斜轉常失敗就改成 4 方向。\n" +
+                "2. 畫面右側會出現懸浮工作列：⠿ 拖曳／收合、▶ 自動執行、轉 轉一回合、＋ 新增點擊規則、校 校正。\n" +
+                "3. 進入戰鬥，珠子靜止時按「校」→「自動偵測」對齊盤面，顏色不對就點格子修正 →「儲存並學習」。\n" +
+                "4. 教它過關卡（使用者設定）：在結算、再次挑戰、選戰友、出戰等畫面，按「＋」再點一下要按的按鈕，" +
+                "然後自己按那個按鈕進到下一個畫面，重複到回到戰鬥為止。\n" +
+                "5. 按 ▶ 自動執行：戰鬥中自動轉珠，戰鬥外看到記住的畫面就自動點，可一直重複刷關。按 ■ 停止。\n" +
+                "　畫面卡住（同一個按鈕連點 6 次）或 3 分鐘沒事做會自動停止。\n\n" +
+                "小提醒：遊戲沒跟上拖曳就把「每步」調慢；斜轉常失敗就改成 4 方向。體力用完的畫面不要錄規則，免得一直點。\n" +
                 "自動操作違反遊戲使用條款，有被封帳號的風險，請自行斟酌。"
         ))
 
@@ -174,13 +194,12 @@ class MainActivity : Activity() {
         autoStatus.text = when {
             Build.VERSION.SDK_INT < 30 -> "⚠ 自動轉珠需要 Android 11 以上（目前 Android ${Build.VERSION.RELEASE}），仍可使用手動模式"
             !on -> "● 轉珠助手：未開啟（照下方步驟 1 開啟）"
-            !geo -> "● 轉珠助手：已開啟。下一步：在戰鬥畫面長按圓鈕校正盤面"
-            else -> "● 轉珠助手：已開啟、盤面已校正（6×${settings.geometry.rows}），在戰鬥中點圓鈕即可"
+            !geo -> "● 轉珠助手：已開啟。下一步：在戰鬥中按工作列的「校」校正盤面"
+            else -> "● 轉珠助手：已開啟、盤面已校正（6×${settings.geometry.rows}），按工作列 ▶ 開始自動執行"
         }
         autoStatus.setTextColor(Color.parseColor(if (on && geo) "#69F0AE" else "#FFD54F"))
         enableBtn.text = if (on) "無障礙設定（已開啟）" else "開啟無障礙設定"
         modeBtn.text = if (settings.autoDrag) "模式：自動拖曳" else "模式：只顯示路徑"
-        contBtn.text = if (settings.continuous) "連續自動：開" else "連續自動：關"
         stepBtn.text = "每步 ${settings.stepMs} ms"
         timeBtn.text = "轉珠時間 ${settings.timeLimitSec} 秒"
         qualityBtn.text = if (settings.beam == 450) "品質：標準" else "品質：高（較慢）"
@@ -188,6 +207,11 @@ class MainActivity : Activity() {
         val learned = colorStore.learnedSamples
         resetColorBtn.text = if (learned > 0) "重設顏色學習（已學 $learned 格）" else "顏色學習：尚未校正"
         resetColorBtn.isEnabled = learned > 0
+        val nRules = ruleStore.count
+        rulesText.text = if (nRules == 0) "點擊規則：尚未設定（▶ 自動執行只會轉珠，不會自動過關卡）"
+        else "點擊規則：$nRules 條（自動執行時，看到記住的畫面就會自動點）"
+        undoRuleBtn.isEnabled = nRules > 0
+        clearRulesBtn.isEnabled = nRules > 0
     }
 
     private fun next(choices: IntArray, cur: Int): Int {

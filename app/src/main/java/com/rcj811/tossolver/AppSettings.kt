@@ -63,6 +63,55 @@ class AppSettings(context: Context) {
     }
 }
 
+/** 點擊規則的存取（JSON） */
+class RuleStore(context: Context) {
+    private val sp = context.getSharedPreferences("rules", Context.MODE_PRIVATE)
+
+    fun load(): MutableList<TapRule> {
+        val out = ArrayList<TapRule>()
+        runCatching {
+            val arr = org.json.JSONArray(sp.getString("rules", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val sig = o.getString("sig").split(',').map { it.toFloat() }.toFloatArray()
+                out.add(TapRule(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("size").toFloat(), sig))
+            }
+        }
+        return out
+    }
+
+    fun save(rules: List<TapRule>) {
+        val arr = org.json.JSONArray()
+        for (r in rules) {
+            val o = org.json.JSONObject()
+            o.put("x", r.x.toDouble())
+            o.put("y", r.y.toDouble())
+            o.put("size", r.size.toDouble())
+            o.put("sig", r.sig.joinToString(",") { String.format(java.util.Locale.US, "%.3f", it) })
+            arr.put(o)
+        }
+        sp.edit().putString("rules", arr.toString()).apply()
+    }
+
+    fun add(rule: TapRule): Int {
+        val list = load()
+        list.add(rule)
+        save(list)
+        return list.size
+    }
+
+    fun removeLast(): Int {
+        val list = load()
+        if (list.isNotEmpty()) list.removeAt(list.size - 1)
+        save(list)
+        return list.size
+    }
+
+    val count: Int get() = load().size
+
+    fun clear() = sp.edit().remove("rules").apply()
+}
+
 /** 顏色學習結果的存取 */
 class ColorStore(context: Context) {
     private val sp = context.getSharedPreferences("colors", Context.MODE_PRIVATE)

@@ -1,8 +1,8 @@
 package com.rcj811.tossolver
 
 import android.accessibilityservice.AccessibilityService
-import android.annotation.TargetApi
 import android.accessibilityservice.GestureDescription
+import android.annotation.TargetApi
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -33,10 +33,16 @@ import java.util.concurrent.Executors
 import kotlin.math.abs
 
 /**
- * 自動轉珠服務（無障礙服務）
- *  - 懸浮圓鈕：點一下 = 截圖 → 辨識 → 求解 → 自動拖曳（或只畫路徑）；長按 = 校正盤面
- *  - 連續模式：盤面穩定就自動出手，再點一次圓鈕停止
- * 截圖只在手機上處理，不儲存、不上傳。
+ * 自動轉珠服務（無障礙服務）＋懸浮工作列
+ *
+ * 工作列按鈕：
+ *  ⠿  拖曳移動；點一下收合 / 展開
+ *  ▶  自動執行（全自動）：戰鬥中自動轉珠；戰鬥外依「點擊規則」自動點擊；再按一次（■）停止
+ *  轉  只轉這一回合
+ *  ＋  新增點擊規則：點一下畫面上要自動按的位置（例如「再次挑戰」）
+ *  校  校正盤面位置與顏色
+ *
+ * 截圖只在手機上即時處理，不儲存、不上傳。
  */
 class AutoTurnService : AccessibilityService() {
 
@@ -54,30 +60,48 @@ class AutoTurnService : AccessibilityService() {
 
         private const val HOLD_START_MS = 80L
         private const val HOLD_END_MS = 60L
+        private const val RULE_COOLDOWN_MS = 3000L    // 同一條規則兩次點擊的最短間隔
+        private const val MAX_SAME_RULE_TAPS = 6       // 同一條規則連續點這麼多次、中間都沒轉珠 → 視為卡住
+        private const val IDLE_STOP_MS = 180_000L      // 3 分鐘沒有任何進展 → 停止
     }
 
     private lateinit var wm: WindowManager
     private lateinit var settings: AppSettings
     private lateinit var colorStore: ColorStore
+    private lateinit var ruleStore: RuleStore
     private lateinit var model: ColorModel
+    private var rules: List<TapRule> = emptyList()
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
 
-    private var bubble: TextView? = null
-    private var bubbleLp: WindowManager.LayoutParams? = null
+    // 工作列
+    private var bar: LinearLayout? = null
+    private var barLp: WindowManager.LayoutParams? = null
+    private var playBtn: TextView? = null
+    private var onceBtn: TextView? = null
+    private val foldable = ArrayList<View>()
+    private var collapsed = false
+
     private var pathView: PathOverlayView? = null
+    private var recordView: View? = null
     private var calibRoot: FrameLayout? = null
     private var calibView: CalibrationView? = null
     private var calibInfo: TextView? = null
     private var calibFrame: Frame? = null
 
+    // 執行狀態
     private var busy = false
-    private var looping = false
+    private var running = false
     private var lastSeen: IntArray? = null
     private var stableCount = 0
     private var lastActed: IntArray? = null
     private var lastActedAt = 0L
     private var lastProgressAt = 0L
+    private val ruleTapAt = HashMap<Int, Long>()
+    private var lastRule = -1
+    private var sameRuleTaps = 0
+    private var turnsDone = 0
+    private var rulesTapped = 0
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
@@ -90,15 +114,17 @@ class AutoTurnService : AccessibilityService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         settings = AppSettings(this)
         colorStore = ColorStore(this)
+        ruleStore = RuleStore(this)
         model = colorStore.load()
+        rules = ruleStore.load()
         addPathView()
-        addBubble()
+        addToolbar()
         if (Build.VERSION.SDK_INT < 30) toast("自動截圖需要 Android 11 以上")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
-    override fun onInterrupt() = stopLoop()
+    override fun onInterrupt() = stopAuto(null)
 
     override fun onUnbind(intent: Intent?): Boolean {
         cleanup()
@@ -112,16 +138,20 @@ class AutoTurnService : AccessibilityService() {
 
     private fun cleanup() {
         if (!::wm.isInitialized) return
-        stopLoop()
+        stopAuto(null)
         closeCalibration()
-        for (v in listOf<View?>(bubble, pathView)) v?.let { runCatching { wm.removeView(it) } }
-        bubble = null
+        closeRecord()
+        for (v in listOf<View?>(bar, pathView)) v?.let { runCatching { wm.removeView(it) } }
+        bar = null
         pathView = null
         if (instance === this) instance = null
     }
 
-    /** 設定頁修改後呼叫，讓服務讀到新的顏色學習結果 */
-    fun reloadModel() { model = colorStore.load() }
+    /** 設定頁修改顏色學習或點擊規則後呼叫 */
+    fun reloadModel() {
+        model = colorStore.load()
+        rules = ruleStore.load()
+    }
 
     // ---------------- 懸浮視窗 ----------------
 
@@ -146,56 +176,83 @@ class AutoTurnService : AccessibilityService() {
         pathView = v
     }
 
-    private fun addBubble() {
-        val size = dp(56)
-        val v = TextView(this).apply {
-            text = "轉"
-            textSize = 20f
+    private fun barButton(label: String, color: String, onClick: (() -> Unit)?): TextView {
+        val size = dp(44)
+        return TextView(this).apply {
+            text = label
+            textSize = 17f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            elevation = dp(6).toFloat()
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor(color))
+            }
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { setMargins(0, dp(3), 0, dp(3)) }
+            if (onClick != null) setOnClickListener { onClick() }
         }
-        val lp = overlayParams(size, size, true).apply {
-            x = resources.displayMetrics.widthPixels - size - dp(8)
-            y = (resources.displayMetrics.heightPixels * 0.22f).toInt()
-        }
-        v.setOnTouchListener(BubbleTouch())
-        wm.addView(v, lp)
-        bubble = v
-        bubbleLp = lp
-        updateBubble()
     }
 
-    private fun updateBubble(label: String? = null) {
-        val v = bubble ?: return
-        v.text = label ?: if (looping) "停" else "轉"
-        val color = when {
-            looping -> "#2E7D32"
-            busy -> "#F57C00"
-            else -> "#C62828"
+    private fun addToolbar() {
+        val b = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(28).toFloat()
+                setColor(Color.argb(200, 25, 32, 38))
+                setStroke(dp(1), Color.argb(160, 255, 255, 255))
+            }
         }
-        v.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.parseColor(color))
-            setStroke(dp(2), Color.WHITE)
+        val handle = barButton("⠿", "#455A64", null)
+        handle.setOnTouchListener(HandleTouch())
+        val play = barButton("▶", "#2E7D32") { toggleAuto() }
+        val once = barButton("轉", "#C62828") { onOnceTap() }
+        val add = barButton("＋", "#1565C0") { startRecordRule() }
+        val cal = barButton("校", "#6A1B9A") { openCalibration() }
+        b.addView(handle)
+        b.addView(play)
+        b.addView(once)
+        b.addView(add)
+        b.addView(cal)
+        foldable.clear()
+        foldable.addAll(listOf(once, add, cal))
+        val lp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true).apply {
+            x = resources.displayMetrics.widthPixels - dp(66)
+            y = (resources.displayMetrics.heightPixels * 0.14f).toInt()
         }
-        v.alpha = 0.92f
+        wm.addView(b, lp)
+        bar = b
+        barLp = lp
+        playBtn = play
+        onceBtn = once
+        updateBar()
     }
 
-    private inner class BubbleTouch : View.OnTouchListener {
+    private fun setColor(v: TextView?, color: String) {
+        (v?.background as? GradientDrawable)?.setColor(Color.parseColor(color))
+    }
+
+    private fun updateBar(onceLabel: String? = null) {
+        playBtn?.text = if (running) "■" else "▶"
+        setColor(playBtn, if (running) "#D32F2F" else "#2E7D32")
+        onceBtn?.text = onceLabel ?: "轉"
+        setColor(onceBtn, if (busy && !running) "#F57C00" else "#C62828")
+        for (v in foldable) v.visibility = if (collapsed) View.GONE else View.VISIBLE
+    }
+
+    private inner class HandleTouch : View.OnTouchListener {
         private var downX = 0f
         private var downY = 0f
         private var startX = 0
         private var startY = 0
-        private var downAt = 0L
         private var dragging = false
 
         override fun onTouch(v: View, e: MotionEvent): Boolean {
-            val lp = bubbleLp ?: return false
+            val lp = barLp ?: return false
+            val root = bar ?: return false
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y
-                    downAt = SystemClock.uptimeMillis(); dragging = false
+                    downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y; dragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX
@@ -204,32 +261,27 @@ class AutoTurnService : AccessibilityService() {
                     if (dragging) {
                         lp.x = startX + dx.toInt()
                         lp.y = startY + dy.toInt()
-                        runCatching { wm.updateViewLayout(v, lp) }
+                        runCatching { wm.updateViewLayout(root, lp) }
                     }
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (!dragging) {
-                        if (SystemClock.uptimeMillis() - downAt > 600) openCalibration() else onBubbleTap()
-                    }
+                MotionEvent.ACTION_UP -> if (!dragging) {
+                    collapsed = !collapsed
+                    updateBar()
                 }
             }
             return true
         }
     }
 
-    private fun onBubbleTap() {
-        if (calibRoot != null) return
-        if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
+    private fun checkReady(): Boolean {
+        if (calibRoot != null || recordView != null) return false
+        if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return false }
         if (!settings.hasGeometry) {
             toast("第一次使用：先校正盤面位置")
             openCalibration()
-            return
+            return false
         }
-        if (settings.continuous) {
-            if (looping) stopLoop() else startLoop()
-        } else {
-            runOnce()
-        }
+        return true
     }
 
     // ---------------- 截圖 ----------------
@@ -270,71 +322,80 @@ class AutoTurnService : AccessibilityService() {
         }
     }
 
-    // ---------------- 單次 / 連續 ----------------
+    // ---------------- 只轉這一回合 ----------------
 
-    private fun runOnce() {
-        if (busy) return
+    private fun onOnceTap() {
+        if (running || busy || !checkReady()) return
         busy = true
-        updateBubble("…")
+        updateBar("…")
         capture { frame ->
-            if (frame == null) { finishTurn("截圖失敗"); return@capture }
+            if (frame == null) { finishOnce("截圖失敗"); return@capture }
             val geo = settings.geometry
             val rec = OrbRecognizer.recognize(frame, geo, model)
             val unknown = rec.unknownCount()
             if (unknown > geo.cells / 3) {
-                finishTurn("看不出盤面（$unknown 格無法辨識）。請確認在戰鬥畫面，或長按圓鈕重新校正")
+                finishOnce("看不出盤面（$unknown 格無法辨識）。請在戰鬥中珠子靜止時再按，或按「校」重新校正")
                 return@capture
             }
             if (unknown > 0) toast("$unknown 格無法辨識，路徑會避開它們")
-            solveAndAct(rec, geo) { ok -> finishTurn(if (ok) null else "拖曳被中斷") }
+            solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
         }
     }
 
-    private fun finishTurn(msg: String?) {
+    private fun finishOnce(msg: String?) {
         busy = false
-        updateBubble()
+        updateBar()
         if (msg != null) toast(msg)
     }
 
-    private fun startLoop() {
-        looping = true
+    // ---------------- 自動執行（全自動） ----------------
+
+    private fun toggleAuto() {
+        if (running) { stopAuto("已停止自動執行（轉珠 $turnsDone 回合、點擊 $rulesTapped 次）"); return }
+        if (busy || !checkReady()) return
+        rules = ruleStore.load()
+        running = true
         lastSeen = null; stableCount = 0; lastActed = null
+        ruleTapAt.clear(); lastRule = -1; sameRuleTaps = 0
+        turnsDone = 0; rulesTapped = 0
         lastProgressAt = SystemClock.uptimeMillis()
-        updateBubble()
-        toast("連續自動：開始（再點一次圓鈕停止）")
-        main.post(loopTick)
+        updateBar()
+        toast(if (rules.isEmpty()) "自動執行：開始（只會轉珠；按「＋」新增點擊規則可自動過關卡）" else "自動執行：開始（${rules.size} 條點擊規則）")
+        main.post(autoTick)
     }
 
-    private fun stopLoop() {
-        if (!looping) return
-        looping = false
-        main.removeCallbacks(loopTick)
-        updateBubble()
+    private fun stopAuto(msg: String?) {
+        if (!running) return
+        running = false
+        main.removeCallbacks(autoTick)
+        updateBar()
+        if (msg != null) toast(msg)
     }
 
-    private val loopTick: Runnable = object : Runnable {
+    private val autoTick: Runnable = object : Runnable {
         override fun run() {
-            if (!looping) return
+            if (!running) return
             if (busy) { main.postDelayed(this, 400); return }
             busy = true
-            capture { frame -> onLoopFrame(frame) }
+            capture { frame -> onAutoFrame(frame) }
         }
     }
 
-    private fun scheduleLoop(delay: Long) {
+    private fun next(delay: Long) {
         busy = false
-        updateBubble()
-        if (looping) main.postDelayed(loopTick, delay)
+        updateBar()
+        if (running) main.postDelayed(autoTick, delay)
     }
 
-    private fun onLoopFrame(frame: Frame?) {
-        if (!looping) { busy = false; updateBubble(); return }
-        if (frame == null) { scheduleLoop(800); return }
+    private fun onAutoFrame(frame: Frame?) {
+        if (!running) { busy = false; updateBar(); return }
+        if (frame == null) { next(800); return }
         val now = SystemClock.uptimeMillis()
+
+        // 1) 戰鬥中：盤面靜止就轉珠
         val geo = settings.geometry
         val rec = OrbRecognizer.recognize(frame, geo, model)
         val board = rec.colors.copyOf(geo.cells)
-        // 出手條件：每格都有信心、盤面沒有現成可消（動畫已結束）、連續兩次截圖相同
         val ready = rec.minConfidence() >= OrbRecognizer.READY_CONF &&
             NativeSolver.countCombos(board, geo.rows) == 0
         val alreadyDone = OrbRecognizer.sameBoard(board, lastActed) && now - lastActedAt < 5000
@@ -345,24 +406,49 @@ class AutoTurnService : AccessibilityService() {
                 lastActedAt = now
                 lastProgressAt = now
                 stableCount = 0
-                updateBubble("…")
-                solveAndAct(rec, geo) { ok -> scheduleLoop(if (ok) 2500 else 1000) }
+                sameRuleTaps = 0
+                solveAndAct(rec, geo) { ok ->
+                    if (ok) turnsDone++
+                    next(if (ok) 2500 else 1000)
+                }
                 return
             }
-        } else if (!ready) {
-            stableCount = 0
-            lastSeen = null
-        }
-        if (now - lastProgressAt > 120_000) {
-            busy = false
-            stopLoop()
-            toast("2 分鐘沒有可轉的盤面，已停止連續模式")
+            next(500)
             return
         }
-        scheduleLoop(600)
+        if (!ready) { stableCount = 0; lastSeen = null }
+
+        // 2) 戰鬥外：依點擊規則自動點擊
+        if (!ready && rules.isNotEmpty()) {
+            val idx = TapMatcher.firstMatch(frame, rules) { i -> now - (ruleTapAt[i] ?: 0L) < RULE_COOLDOWN_MS }
+            if (idx >= 0) {
+                sameRuleTaps = if (idx == lastRule) sameRuleTaps + 1 else 1
+                lastRule = idx
+                if (sameRuleTaps > MAX_SAME_RULE_TAPS) {
+                    busy = false
+                    stopAuto("畫面好像卡住了（規則 ${idx + 1} 連續點了 $MAX_SAME_RULE_TAPS 次），已停止")
+                    return
+                }
+                ruleTapAt[idx] = now
+                lastProgressAt = now
+                val r = rules[idx]
+                tap(r.x, r.y) { ok ->
+                    if (ok) rulesTapped++
+                    next(1500)
+                }
+                return
+            }
+        }
+
+        if (now - lastProgressAt > IDLE_STOP_MS) {
+            busy = false
+            stopAuto("3 分鐘沒有可轉的盤面或可點的畫面，已停止自動執行")
+            return
+        }
+        next(600)
     }
 
-    // ---------------- 求解與拖曳 ----------------
+    // ---------------- 求解、拖曳、點擊 ----------------
 
     private fun solveAndAct(rec: Recognition, geo: BoardGeometry, done: (Boolean) -> Unit) {
         // 無法辨識的格子標成「冰封」：求解時不碰、也不算消除
@@ -380,7 +466,7 @@ class AutoTurnService : AccessibilityService() {
                 }
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)
-                updateBubble("${res.combos}")
+                updateBar("${res.combos}")
                 if (settings.autoDrag) {
                     main.postDelayed({
                         drag(pts, settings.stepMs.toLong()) { ok ->
@@ -418,6 +504,11 @@ class AutoTurnService : AccessibilityService() {
         }
     }
 
+    private fun tap(x: Float, y: Float, done: (Boolean) -> Unit) {
+        val p = Path().apply { moveTo(x, y) }
+        dispatch(GestureDescription.StrokeDescription(p, 0, 60), done)
+    }
+
     private fun dispatch(stroke: GestureDescription.StrokeDescription, cb: (Boolean) -> Unit) {
         val g = GestureDescription.Builder().addStroke(stroke).build()
         val accepted = dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
@@ -427,17 +518,72 @@ class AutoTurnService : AccessibilityService() {
         if (!accepted) cb(false)
     }
 
+    // ---------------- 新增點擊規則 ----------------
+
+    private fun startRecordRule() {
+        if (calibRoot != null || recordView != null || busy) return
+        if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
+        stopAuto(null)
+        busy = true
+        capture { frame ->
+            busy = false
+            updateBar()
+            if (frame == null) { toast("截圖失敗"); return@capture }
+            showRecordOverlay(frame)
+        }
+    }
+
+    private fun showRecordOverlay(frame: Frame) {
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.argb(70, 0, 0, 0)) }
+        val hint = TextView(this).apply {
+            text = "點一下要自動按的位置（例如「再次挑戰」「確定」「出戰」）\n之後只要畫面上出現一樣的東西，自動執行時就會幫你點。\n點這段文字可取消。"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(220, 21, 101, 192))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setOnClickListener { closeRecord(); toast("已取消") }
+        }
+        root.addView(hint, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP
+            topMargin = dp(40)
+            leftMargin = dp(12)
+            rightMargin = dp(12)
+        })
+        root.setOnTouchListener { _, e ->
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                val size = TapMatcher.defaultSize(frame)
+                val sig = TapMatcher.signature(frame, e.rawX, e.rawY, size)
+                closeRecord()
+                if (sig == null) {
+                    toast("太靠近螢幕邊緣，請點按鈕中間")
+                } else {
+                    val n = ruleStore.add(TapRule(e.rawX, e.rawY, size, sig))
+                    rules = ruleStore.load()
+                    toast("已新增點擊規則 $n。現在請自己按一下那個按鈕，到下一個畫面再繼續新增")
+                }
+            }
+            true
+        }
+        wm.addView(root, overlayParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, true))
+        recordView = root
+    }
+
+    private fun closeRecord() {
+        recordView?.let { runCatching { wm.removeView(it) } }
+        recordView = null
+    }
+
     // ---------------- 校正 ----------------
 
     private fun openCalibration() {
-        if (calibRoot != null || busy) return
-        stopLoop()
+        if (calibRoot != null || recordView != null || busy) return
+        stopAuto(null)
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
         busy = true
-        updateBubble("…")
+        updateBar("…")
         capture { frame ->
             busy = false
-            updateBubble()
+            updateBar()
             if (frame == null) { toast("截圖失敗"); return@capture }
             calibFrame = frame
             showCalibration(frame)
@@ -468,25 +614,25 @@ class AutoTurnService : AccessibilityService() {
         val rowA = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL }
         val rowB = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL }
         val wlp = { LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
+        val startGeo = if (settings.hasGeometry) settings.geometry else defaultGeometry(frame, 5)
         rowA.addView(btn("自動偵測") { autoDetectInCalibration() }, wlp())
-        rowA.addView(btn("列數 ${settings.geometry.rows}") { b -> cycleRows(b) }, wlp())
+        rowA.addView(btn("列數 ${startGeo.rows}") { b -> cycleRows(b) }, wlp())
         rowA.addView(btn("重新截圖") { recaptureCalibration() }, wlp())
         rowB.addView(btn("儲存並學習") { saveCalibration() }, wlp())
         rowB.addView(btn("關閉") { closeCalibration() }, wlp())
         panel.addView(info)
         panel.addView(rowA)
         panel.addView(rowB)
-        val plp = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+        root.addView(panel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
             gravity = Gravity.TOP
             topMargin = dp(40)
             leftMargin = dp(8)
             rightMargin = dp(8)
-        }
-        root.addView(panel, plp)
+        })
 
         view.onGeometryChanged = { recognizeInCalibration() }
         view.onLabelsChanged = { updateCalibInfo() }
-        view.geo = if (settings.hasGeometry) settings.geometry else defaultGeometry(frame, settings.geometry.rows)
+        view.geo = startGeo
 
         wm.addView(root, overlayParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, true))
         calibRoot = root
