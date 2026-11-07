@@ -704,7 +704,8 @@ class AutoTurnService : AccessibilityService() {
         val maxPath = settings.maxPathFor(geo.rows)
         val dirs = settings.dirs
         val budget = settings.solveBudgetMs
-        val ruleInts = stage.toInts()
+        val goCell = rec.startCell()
+        val ruleInts = stage.toInts(goCell)
         val hasStage = !stage.isEmpty()
         worker.execute {
             var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
@@ -712,7 +713,7 @@ class AutoTurnService : AccessibilityService() {
                 lastNoMove = false
                 if (!res.found || res.dirs.isEmpty()) {
                     // 消不出任何 combo（例如整盤冰封）：移動一步結束回合；連一步都不能動 → 交給使用者
-                    val pass = passMove(cells, geo.rows)
+                    val pass = passMove(cells, geo.rows, goCell)
                     if (pass == null) {
                         lastNoMove = true
                         toast("盤面全部是不能碰的珠子，沒辦法轉")
@@ -752,9 +753,9 @@ class AutoTurnService : AccessibilityService() {
     }
 
     /** 找一步合法的移動（兩顆都能碰的相鄰珠子），用來在消不出 combo 時結束回合 */
-    private fun passMove(cells: IntArray, rows: Int): SolveResult? {
+    private fun passMove(cells: IntArray, rows: Int, goCell: Int = -1): SolveResult? {
         val n = rows * 6
-        for (i in 0 until n) {
+        for (i in (if (goCell >= 0) goCell..goCell else 0 until n)) {
             if (cells[i] and 0x40 != 0) continue
             for (d in 0 until 4) {
                 val x = i % 6 + Dirs.DX[d]

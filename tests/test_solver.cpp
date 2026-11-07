@@ -239,6 +239,18 @@ int main() {
         CHECK(cNew >= cOld && oNew > oOld, "combo 不變差、消珠變多");
     }
 
+    {
+        // GO 起點符石：必須從指定格出發（App 端把 GO 格放進規則 [10]）
+        uint8_t bg[MAX_CELLS]; parse("454032" "445403" "041514" "435025" "225302", bg, 30);
+        int v[RULES_INTS] = {0}; v[0] = 1; v[3] = -1; v[8] = 6; v[10] = 19; v[11] = -1;
+        for (int i = 0; i < MAX_CELLS; i++) v[12 + MAX_CELLS + i] = -1;
+        Rules rg; CHECK(rulesFromInts(v, RULES_INTS, rg), "GO 規則可解碼");
+        Config cg; cg.maxPath = 60;
+        Solution sg = solve(bg, cg, rg);
+        CHECK(sg.found && sg.start == 19, "GO：路徑從 GO 那格出發");
+        CHECK(!replay(bg, 0, {0}, cg, rg).legal, "GO：從別格出發不合法");
+    }
+
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);
     return failures ? 1 : 0;
 }

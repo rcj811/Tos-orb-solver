@@ -46,6 +46,11 @@ object OrbTypeDialog {
         touch.addView(noTouch)
         touch.check(if (existing?.noTouch == true) 2 else 1)
         box.addView(touch)
+        val start = android.widget.CheckBox(themed).apply {
+            text = "必須從這顆開始轉（例：GO 起點符石）"
+            isChecked = existing?.mustStart == true
+        }
+        box.addView(start)
         box.addView(TextView(themed).apply { text = "\n消除方式？"; textSize = 15f })
         val dissolve = RadioGroup(themed).apply { orientation = RadioGroup.VERTICAL }
         for (k in DISSOLVE_HINT.indices) dissolve.addView(RadioButton(themed).apply { text = DISSOLVE_HINT[k]; id = 100 + k })
@@ -74,8 +79,9 @@ object OrbTypeDialog {
                 val store = OrbTypeStore(ctx)
                 val noT = touch.checkedRadioButtonId == 2
                 val dis = dissolve.checkedRadioButtonId - 100
-                val t = if (existing == null) store.add(n, noT, dis)
-                else { store.update(existing.id, n, noT, dis); OrbTypes.get(existing.id) }
+                val st = start.isChecked && !noT   // 不能碰的珠不可能當起點
+                val t = if (existing == null) store.add(n, noT, dis, st)
+                else { store.update(existing.id, n, noT, dis, st); OrbTypes.get(existing.id) }
                 dlg.dismiss()
                 onSaved(t)
             }

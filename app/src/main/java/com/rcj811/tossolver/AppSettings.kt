@@ -156,7 +156,8 @@ class OrbTypeStore(context: Context) {
             val arr = org.json.JSONArray(sp.getString("types", "[]"))
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                out.add(OrbType(o.getInt("id"), o.getString("name"), o.getBoolean("noTouch"), o.getInt("dissolve")))
+                out.add(OrbType(o.getInt("id"), o.getString("name"), o.getBoolean("noTouch"), o.getInt("dissolve"),
+                    mustStart = o.optBoolean("mustStart", false)))
             }
         }
         return out
@@ -165,14 +166,14 @@ class OrbTypeStore(context: Context) {
     private fun save(list: List<OrbType>) {
         val arr = org.json.JSONArray()
         for (t in list) arr.put(org.json.JSONObject().put("id", t.id).put("name", t.name)
-            .put("noTouch", t.noTouch).put("dissolve", t.dissolve))
+            .put("noTouch", t.noTouch).put("dissolve", t.dissolve).put("mustStart", t.mustStart))
         sp.edit().putString("types", arr.toString()).apply()
     }
 
     /** 新增後回傳新類別；同時更新 OrbTypes.custom */
-    fun add(name: String, noTouch: Boolean, dissolve: Int): OrbType {
+    fun add(name: String, noTouch: Boolean, dissolve: Int, mustStart: Boolean = false): OrbType {
         val id = sp.getInt("nextId", OrbTypes.FIRST_CUSTOM_ID)
-        val t = OrbType(id, name, noTouch, dissolve)
+        val t = OrbType(id, name, noTouch, dissolve, mustStart = mustStart)
         val list = load() + t
         sp.edit().putInt("nextId", id + 1).apply()
         save(list)
@@ -187,8 +188,8 @@ class OrbTypeStore(context: Context) {
     }
 
     /** 修改規則（保留 id 與學過的樣子） */
-    fun update(id: Int, name: String, noTouch: Boolean, dissolve: Int) {
-        val list = load().map { if (it.id == id) OrbType(id, name, noTouch, dissolve) else it }
+    fun update(id: Int, name: String, noTouch: Boolean, dissolve: Int, mustStart: Boolean = false) {
+        val list = load().map { if (it.id == id) OrbType(id, name, noTouch, dissolve, mustStart = mustStart) else it }
         save(list)
         OrbTypes.custom = list
     }

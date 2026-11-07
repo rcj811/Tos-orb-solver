@@ -114,6 +114,7 @@ class CalibrationView(context: Context) : View(context) {
                     OrbState.NO_TOUCH -> Color.parseColor("#8D6E63")
                     OrbState.ELECTRIC -> Color.parseColor("#FDD835")
                     OrbState.LOCKED -> Color.parseColor("#4FC3F7")
+                    OrbState.START -> Color.parseColor("#76FF03")
                     else -> Color.parseColor("#CE93D8")   // 自訂類別
                 }
                 canvas.drawCircle(x + s * 0.76f, y + s * 0.76f, s * 0.17f, fill)

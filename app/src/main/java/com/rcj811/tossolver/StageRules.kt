@@ -49,8 +49,9 @@ class StageRules {
         cellFlags[cell] = cellFlags[cell] xor flag
     }
 
-    fun toInts(): IntArray {
-        if (isEmpty()) return IntArray(0)
+    /** forceStart ≥ 0：本回合盤面上有 GO 起點珠，強制從這格出發（覆蓋綠漩渦設定） */
+    fun toInts(forceStart: Int = -1): IntArray {
+        if (isEmpty() && forceStart < 0) return IntArray(0)
         val v = IntArray(INTS)
         v[0] = 1
         v[1] = comboMin; v[2] = firstMin; v[3] = firstExact
@@ -58,7 +59,7 @@ class StageRules {
         v[6] = if (sticky) 1 else 0
         v[7] = if (firePath) 1 else 0
         v[8] = 6; v[9] = 0
-        v[10] = green; v[11] = red
+        v[10] = if (forceStart >= 0) forceStart else green; v[11] = red
         for (i in 0 until MAX_CELLS) {
             v[12 + i] = cellFlags[i]
             v[12 + MAX_CELLS + i] = -1

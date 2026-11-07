@@ -46,6 +46,7 @@ object OrbState {
     const val NO_TOUCH = 2
     const val ELECTRIC = 3
     const val LOCKED = 4
+    const val START = 5      // GO：本回合必須從這顆開始轉
 }
 
 /**
@@ -59,6 +60,7 @@ class OrbType(
     val dissolve: Int,
     val builtin: Boolean = false,
     badgeText: String? = null,
+    val mustStart: Boolean = false,   // 必須當起點（例：GO 符石）
 ) {
     companion object {
         const val D_NORMAL = 0
@@ -83,7 +85,7 @@ class OrbType(
             else -> 0
         }
 
-    fun describe(): String = (if (noTouch) "不能碰" else "可以碰") + "・" + DISSOLVE_NAMES[dissolve]
+    fun describe(): String = (if (mustStart) "必須當起點・" else "") + (if (noTouch) "不能碰" else "可以碰") + "・" + DISSOLVE_NAMES[dissolve]
 }
 
 object OrbTypes {
@@ -94,6 +96,7 @@ object OrbTypes {
         OrbType(OrbState.NO_TOUCH, "風化/黏腐", true, OrbType.D_PREFER, true, "風"),
         OrbType(OrbState.ELECTRIC, "觸電", true, OrbType.D_MUST, true, "電"),
         OrbType(OrbState.LOCKED, "冰封/石化", true, OrbType.D_CANNOT, true, "冰"),
+        OrbType(OrbState.START, "起點GO", false, OrbType.D_NORMAL, true, "GO", mustStart = true),
     )
 
     /** 使用者自訂的類別（App 啟動 / 服務連線時從儲存載入） */
@@ -200,11 +203,15 @@ class Recognition(
     fun solverCell(i: Int): Int {
         val c = colors[i]
         val t = OrbTypes.get(states[i])
-        if (t.colorMatters && confidence[i] < OrbRecognizer.UNKNOWN_CONF) return c or 0x60
+        // 起點珠上有「GO」字樣，顏色信心本來就較低：仍用最可能的顏色，不能當障礙（否則無法從它出發）
+        if (t.colorMatters && !t.mustStart && confidence[i] < OrbRecognizer.UNKNOWN_CONF) return c or 0x60
         return c or t.flags
     }
 
     fun solverCells() = IntArray(cells) { solverCell(it) }
+
+    /** 必須當起點的格子（GO）；沒有回傳 -1 */
+    fun startCell(): Int = (0 until cells).firstOrNull { OrbTypes.get(states[it]).mustStart } ?: -1
 
     /** 可消除格子的珠種（不能消除的給 -1），用來判斷首消條件是否可能 */
     fun dissolvableColors() = IntArray(cells) { i -> if (solverCell(i) and 0x20 != 0) -1 else colors[i] }
