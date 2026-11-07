@@ -55,22 +55,24 @@ object ShapeMatcher {
         return vals[vals.size / 2] < GRAY_CHROMA
     }
 
-    /** 灰階積分圖（只算盤面附近），用來快速算任意方塊的平均亮度 */
-    private class Integral(frame: Frame, val x0: Int, val y0: Int, val w: Int, val h: Int) {
-        val sum = DoubleArray((w + 1) * (h + 1))
+    /** 灰階積分圖（只算盤面附近），用來快速算任意方塊的平均亮度；緩衝區重複使用，不每次配置記憶體 */
+    private var buf = IntArray(0)
+
+    private class Integral(frame: Frame, val x0: Int, val y0: Int, val w: Int, val h: Int, val sum: IntArray) {
         init {
+            val W = w + 1
+            java.util.Arrays.fill(sum, 0, W, 0)
             for (y in 0 until h) {
-                var row = 0.0
+                var row = 0
                 val fy = y0 + y
+                sum[(y + 1) * W] = 0
                 for (x in 0 until w) {
                     val fx = x0 + x
-                    var g = 0.0
                     if (fx in 0 until frame.width && fy in 0 until frame.height) {
                         val p = frame.pixels[fy * frame.width + fx]
-                        g = 0.299 * ((p shr 16) and 255) + 0.587 * ((p shr 8) and 255) + 0.114 * (p and 255)
+                        row += (299 * ((p shr 16) and 255) + 587 * ((p shr 8) and 255) + 114 * (p and 255)) / 1000
                     }
-                    row += g
-                    sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row
+                    sum[(y + 1) * W + x + 1] = sum[y * W + x + 1] + row
                 }
             }
         }
@@ -81,7 +83,7 @@ object ShapeMatcher {
             val n = (x2 - x1) * (y2 - y1)
             if (n <= 0) return 0f
             val W = w + 1
-            return ((sum[y2 * W + x2] - sum[y1 * W + x2] - sum[y2 * W + x1] + sum[y1 * W + x1]) / n).toFloat()
+            return (sum[y2 * W + x2] - sum[y1 * W + x2] - sum[y2 * W + x1] + sum[y1 * W + x1]).toFloat() / n
         }
     }
 
@@ -129,14 +131,24 @@ object ShapeMatcher {
 
     class Result(val colors: IntArray, val confidence: FloatArray, val shapes: Array<FloatArray>)
 
+    /** 對位結果快取：格線不變就不重新對位（盤面位置整場戰鬥都一樣） */
+    private var cacheKey: List<Float>? = null
+    private var cached = floatArrayOf(0f, 0f, 0f)
+    /** 對位時只用分散的 12 格試，省時間 */
+    private val SAMPLE = intArrayOf(0, 2, 5, 7, 9, 13, 16, 20, 22, 24, 27, 29, 31, 34, 38, 41, 45, 47)
+
+    @Synchronized
     fun recognize(frame: Frame, geo: BoardGeometry, extra: List<Pair<Int, FloatArray>> = emptyList()): Result {
         val s0 = geo.cell
         val mx = (s0 * 0.6f).toInt()
         val ix = (geo.left - mx).toInt(); val iy = (geo.top - mx).toInt()
-        val ig = Integral(frame, ix, iy, (6 * s0 + 2 * mx).toInt(), (geo.rows * s0 + 2 * mx).toInt())
+        val w = (6 * s0 + 2 * mx).toInt(); val h = (geo.rows * s0 + 2 * mx).toInt()
+        if (buf.size < (w + 1) * (h + 1)) buf = IntArray((w + 1) * (h + 1))
+        val ig = Integral(frame, ix, iy, w, h, buf)
+        val sample = SAMPLE.filter { it < geo.cells }.take(12)
         fun total(l: Float, t: Float, s: Float): Float {
             var sum = 0f
-            for (i in 0 until geo.cells) {
+            for (i in sample) {
                 val d = describe(ig, (l + (i % 6) * s).toInt(), (t + (i / 6) * s).toInt(), s.toInt())
                 var b = -1f
                 for (k in 0 until 6) b = max(b, dot(d, templates[k]))
@@ -144,23 +156,45 @@ object ShapeMatcher {
             }
             return sum
         }
-        // 整個盤面一起對位：找最吻合的位置與大小（以盤面中心縮放）
-        var bl = geo.left; var bt = geo.top; var bs = s0
-        var best = total(bl, bt, bs)
-        for (ds in floatArrayOf(-0.06f, -0.04f, -0.02f, 0f, 0.02f, 0.04f, 0.06f)) {
-            val ss = s0 * (1 + ds)
-            for (dy in -2..2) for (dx in -2..2) {
-                val l = geo.left + dx * 0.05f * s0 - (ss - s0) * 3f
-                val t = geo.top + dy * 0.05f * s0 - (ss - s0) * geo.rows / 2f
+        var bl: Float; var bt: Float; var bs: Float
+        val key = listOf(geo.left, geo.top, geo.cell, geo.rows.toFloat())
+        if (key == cacheKey) {
+            bl = cached[0]; bt = cached[1]; bs = cached[2]
+        } else {
+            // 整個盤面一起對位：1) 大小 2) 位置 3) 再試大小 4) 微調（以盤面中心縮放）
+            bl = geo.left; bt = geo.top; bs = s0
+            var best = total(bl, bt, bs)
+            fun tryScale(l0: Float, t0: Float, sBase: Float, ds: Float) {
+                val ss = sBase * (1 + ds)
+                val l = l0 - (ss - sBase) * 3f; val t = t0 - (ss - sBase) * geo.rows / 2f
                 val v = total(l, t, ss)
                 if (v > best) { best = v; bl = l; bt = t; bs = ss }
             }
-        }
-        val cl = bl; val ct = bt
-        for (dy in -1..1) for (dx in -1..1) {
-            val l = cl + dx * 0.025f * bs; val t = ct + dy * 0.025f * bs
-            val v = total(l, t, bs)
-            if (v > best) { best = v; bl = l; bt = t }
+            for (ds in floatArrayOf(-0.06f, -0.04f, -0.02f, 0.02f, 0.04f, 0.06f)) tryScale(geo.left, geo.top, s0, ds)
+            run {
+                val l1 = bl; val t1 = bt; val s1 = bs
+                for (dy in -2..2) for (dx in -2..2) {
+                    if (dx == 0 && dy == 0) continue
+                    val l = l1 + dx * 0.05f * s0; val t = t1 + dy * 0.05f * s0
+                    val v = total(l, t, s1)
+                    if (v > best) { best = v; bl = l; bt = t; bs = s1 }
+                }
+            }
+            run {
+                val l2 = bl; val t2 = bt; val s2 = bs
+                for (ds in floatArrayOf(-0.02f, 0.02f)) tryScale(l2, t2, s2, ds)
+            }
+            run {
+                val l3 = bl; val t3 = bt; val s3 = bs
+                for (dy in -1..1) for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val l = l3 + dx * 0.025f * s3; val t = t3 + dy * 0.025f * s3
+                    val v = total(l, t, s3)
+                    if (v > best) { best = v; bl = l; bt = t }
+                }
+            }
+            cacheKey = key
+            cached = floatArrayOf(bl, bt, bs)
         }
         val n = geo.cells
         val colors = IntArray(n)

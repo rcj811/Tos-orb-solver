@@ -56,6 +56,21 @@ class ShapeMatcherTest {
     }
 
     @Test
+    fun fastEnoughAfterFirstAlignment() {
+        val f = load("bw_board.rgbz")
+        val geo = BoardGeometry(3f, 2f, 181f, 5)
+        val t0 = System.nanoTime()
+        ShapeMatcher.recognize(f, geo)                       // 第一次：整盤對位
+        val first = (System.nanoTime() - t0) / 1_000_000
+        val t1 = System.nanoTime()
+        repeat(5) { ShapeMatcher.recognize(f, geo) }        // 之後：用快取的對位
+        val cached = (System.nanoTime() - t1) / 5_000_000
+        println("黑白盤面辨識：第一次 $first ms，之後每次 $cached ms")
+        assertTrue("第一次太慢：$first ms", first < 1500)
+        assertTrue("快取後太慢：$cached ms", cached < 150)
+    }
+
+    @Test
     fun learnedShapesAreUsed() {
         val f = load("bw_board.rgbz")
         val geo = BoardGeometry(0f, 0f, 180f, 5)

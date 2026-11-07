@@ -422,8 +422,8 @@ object OrbRecognizer {
     ): Recognition {
         val n = geo.cells
         // 黑白盤面（黑白符石）：顏色沒有意義，改用符石形狀邊緣判斷
-        if (ShapeMatcher.isGray(frame, geo)) {
-            val sr = ShapeMatcher.recognize(frame, geo, extraShapes)
+        val sr = if (ShapeMatcher.isGray(frame, geo)) runCatching { ShapeMatcher.recognize(frame, geo, extraShapes) }.getOrNull() else null
+        if (sr != null) {
             val states = IntArray(n)
             val descs = if (stateModel != null) Array(n) { stateDescriptor(frame, geo, it) } else null
             if (stateModel != null && !stateModel.isEmpty && descs != null) for (i in 0 until n) {
