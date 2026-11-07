@@ -1031,7 +1031,7 @@ class AutoTurnService : AccessibilityService() {
         val exactChoices = intArrayOf(-1, 1, 2, 3, 4, 5, 6)
         fun cycle(a: IntArray, cur: Int): Int { val i = a.indexOf(cur); return a[if (i < 0) 0 else (i + 1) % a.size] }
         fun comboLabel() = if (edit.comboMin == 0) "Combo盾：無" else "Combo盾 ≥${edit.comboMin}"
-        fun firstLabel() = if (edit.firstMin == 0) "首消盾：無" else "首消 ≥${edit.firstMin}"
+        fun firstLabel() = if (edit.firstMin == 0) "首消Combo盾：無" else "首消Combo ≥${edit.firstMin}"
         fun exactLabel() = if (edit.firstExact < 0) "固定首消：無" else "首消剛好 ${edit.firstExact}"
         val comboBtn = btn(comboLabel()) { b -> edit.comboMin = cycle(comboChoices, edit.comboMin); b.text = comboLabel(); refresh() }
         val firstBtn = btn(firstLabel()) { b -> edit.firstMin = cycle(firstChoices, edit.firstMin); b.text = firstLabel(); refresh() }
@@ -1040,7 +1040,7 @@ class AutoTurnService : AccessibilityService() {
         fun attrLabel() = if (edit.firstAttrMin == 0) "首消屬性盾：無" else "首消屬性 ≥${edit.firstAttrMin}"
         val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
         val orbsChoices = intArrayOf(0) + (10..20).toList().toIntArray()
-        fun orbsLabel() = if (edit.firstOrbsExact == 0) "首消粒數盾：無" else "首消剛好 ${edit.firstOrbsExact} 粒"
+        fun orbsLabel() = if (edit.firstOrbsExact == 0) "NUM盾：無" else "NUM盾：剛好 ${edit.firstOrbsExact} 粒"
         val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsExact = cycle(orbsChoices, edit.firstOrbsExact); b.text = orbsLabel(); refresh() }
         fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
         fun fireLabel() = "火焰路徑：" + if (edit.firePath) "開" else "關"
