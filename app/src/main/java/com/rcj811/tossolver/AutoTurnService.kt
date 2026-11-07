@@ -81,7 +81,6 @@ class AutoTurnService : AccessibilityService() {
     private var activePreset = -1           // 目前判斷出的關卡（-1 = 一般關卡）
     private var lastGoalsOk = true
     private var unmetStreak = 0
-    private var closeArmedAt = 0L
     private var onlineLearned = 0        // 自我學習：累積但還沒存檔的顏色樣本數
     private var rulesDirty = 0
     private var lastNoMove = false        // 上一次求解：整盤都不能碰
@@ -472,16 +471,28 @@ class AutoTurnService : AccessibilityService() {
     // ---------------- ✕ 關閉 ----------------
 
     private fun onCloseTap() {
-        val now = SystemClock.uptimeMillis()
-        if (now - closeArmedAt < 2500) {
-            stopAuto(null)
-            toast("已關閉自轉珠（要再使用，打開「自轉珠」App 即可重新開啟）")
-            cleanup()
-            disableSelf()
-        } else {
-            closeArmedAt = now
-            toast("再按一次 ✕ 關閉自轉珠")
+        val dlg = android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("關閉自轉珠？")
+            .setMessage("會停止自動執行、關掉工作列，並完全結束自轉珠程式（學過的資料會保留）。\n要再使用，打開「自轉珠」App 重新開啟無障礙設定即可。")
+            .setPositiveButton("確認關閉") { _, _ -> shutdown() }
+            .setNegativeButton("取消", null)
+            .create()
+        dlg.window?.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        dlg.show()
+    }
+
+    /** 真正關閉：存好學習資料 → 關掉所有畫面 → 停用無障礙服務 → 關掉 App 畫面 → 結束程式 */
+    private fun shutdown() {
+        stopAuto(null)
+        flushLearning()
+        cleanup()
+        runCatching { worker.shutdownNow() }
+        runCatching {
+            (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).appTasks.forEach { it.finishAndRemoveTask() }
         }
+        Toast.makeText(this, "已完全關閉自轉珠", Toast.LENGTH_SHORT).show()
+        runCatching { disableSelf() }
+        main.postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 600)
     }
 
     // ---------------- 只轉這一回合 ----------------
