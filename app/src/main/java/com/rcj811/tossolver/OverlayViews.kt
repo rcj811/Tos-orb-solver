@@ -168,6 +168,11 @@ class CalibrationView(context: Context) : View(context) {
                             // 長按：切換符石類別（普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 自訂…）
                             states[i] = OrbTypes.next(states[i])
                             stateEdited[i] = true
+                        } else if (!edited[i] && !stateEdited[i] && labels[i] in 0..5 &&
+                            states[i] <= OrbState.ENHANCED && conf[i] < OrbRecognizer.UNKNOWN_CONF) {
+                            // 有問號的格子點一下：確認判斷正確（問號消失、顏色不變，存檔時會學起來）
+                            edited[i] = true
+                            conf[i] = 1f
                         } else {
                             // 點一下：切換顏色
                             labels[i] = if (labels[i] !in 0..5) 0 else (labels[i] + 1) % 6
