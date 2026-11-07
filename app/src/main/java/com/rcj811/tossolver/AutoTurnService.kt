@@ -919,9 +919,9 @@ class AutoTurnService : AccessibilityService() {
                     return@read
                 }
                 val (idx, _) = StageMatcher.best(sig, presets)
-                val initial = if (idx >= 0) StageRules().apply { copyFrom(presets[idx].rules) } else StageRules()
-                if (idx >= 0) toast("這是記住的關卡 ${idx + 1}，可修改後按完成")
-                else toast("提示：先長按王打開技能視窗再按「關」，可以自動讀取破解條件")
+                // 每次按「關」都從空白開始，照眼前這隻王重新設定（按完成會覆蓋這關原本記住的條件）
+                val initial = StageRules()
+                toast("條件已清空，請照這隻王的盾設定後按「完成」，會自動開始轉珠")
                 showStagePanel(sig, idx, initial)
             }
         }
@@ -1001,7 +1001,7 @@ class AutoTurnService : AccessibilityService() {
         val attrChoices = intArrayOf(0, 4, 5, 6, 7, 8)
         fun attrLabel() = if (edit.firstAttrMin == 0) "首消屬性盾：無" else "首消屬性 ≥${edit.firstAttrMin}"
         val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
-        val orbsChoices = intArrayOf(0, 10, 12, 15, 18, 20, 24)
+        val orbsChoices = intArrayOf(0) + (10..20).toList().toIntArray()
         fun orbsLabel() = if (edit.firstOrbsMin == 0) "首消粒數盾：無" else "首消 ≥${edit.firstOrbsMin} 粒"
         val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsMin = cycle(orbsChoices, edit.firstOrbsMin); b.text = orbsLabel(); refresh() }
         fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
