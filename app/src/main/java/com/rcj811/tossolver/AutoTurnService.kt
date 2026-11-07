@@ -509,7 +509,7 @@ class AutoTurnService : AccessibilityService() {
             val go = {
                 val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(rec.dissolvableColors())
                 if (why != null) toast("$why，需要用角色技能轉珠；先幫你打最多 combo")
-                solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
+                solveAndAct(rec, geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "拖曳被中斷") }
             }
             // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
             if (forced != null) go() else withNum(frame, geo) { go() }
@@ -735,6 +735,11 @@ class AutoTurnService : AccessibilityService() {
         val hasStage = !stage.isEmpty()
         worker.execute {
             var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
+            // NUM 盾要剛好：第一次沒找到，就用更大的搜尋範圍再找一次
+            if (res.found && !res.goalsMet && stage.firstOrbsExact > 0) {
+                val again = SolveResult.from(NativeSolver.solve(cells, geo.rows, maxOf(beam, 1500) * 3, maxPath, dirs, ruleInts, 0))
+                if (again.goalsMet) res = again
+            }
             main.post {
                 lastNoMove = false
                 if (!res.found || res.dirs.isEmpty()) {
@@ -758,6 +763,14 @@ class AutoTurnService : AccessibilityService() {
                     if (hasStage) { if (res.goalsMet) p.met++ else p.unmet++ }
                     presetStore.save(presets)
                     if (!wasHard && p.hard) toast("這關常常破不了，之後會自動提高搜尋品質")
+                }
+                // NUM 盾必須「剛好」：湊不到剛好就不轉（轉了一定多或少，傷害變 1），交給使用者
+                if (!lastGoalsOk && stage.firstOrbsExact > 0) {
+                    lastNoMove = false
+                    stopAuto(null)
+                    alertManual("這盤找不到首批「剛好 ${stage.firstOrbsExact} 粒」的轉法，沒有轉珠，請手動處理")
+                    done(false)
+                    return@post
                 }
                 if (!lastGoalsOk) toast("這盤無法完全符合機制（${stage.summary()}），改打最多 combo")
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
