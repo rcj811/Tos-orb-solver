@@ -170,9 +170,16 @@ class CalibrationView(context: Context) : View(context) {
                             stateEdited[i] = true
                         } else if (!edited[i] && !stateEdited[i] && labels[i] in 0..5 &&
                             states[i] <= OrbState.ENHANCED && conf[i] < OrbRecognizer.UNKNOWN_CONF) {
-                            // 有問號的格子點一下：確認判斷正確（問號消失、顏色不變，存檔時會學起來）
-                            edited[i] = true
-                            conf[i] = 1f
+                            // 有問號的格子點一下：確認判斷正確（顏色不變，存檔時會學起來）。
+                            // 點一顆＝同一種顏色、有問號的珠子全部一起確認
+                            val k = labels[i]
+                            for (j in 0 until geo.cells) {
+                                if (j == i || (!edited[j] && !stateEdited[j] && labels[j] == k &&
+                                        states[j] <= OrbState.ENHANCED && conf[j] < OrbRecognizer.UNKNOWN_CONF)) {
+                                    edited[j] = true
+                                    conf[j] = 1f
+                                }
+                            }
                         } else {
                             // 點一下：切換顏色
                             labels[i] = if (labels[i] !in 0..5) 0 else (labels[i] + 1) % 6
