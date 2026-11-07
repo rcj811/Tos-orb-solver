@@ -130,7 +130,7 @@ object OrbTypeDialog {
         val counts = cs.protoCounts()
         val special = OrbTypes.all().filter { it.id != OrbState.NORMAL }
         val items = arrayOf(
-            "珠子顏色範例（你改過顏色的珠子）：" + (0 until 6).joinToString(" ") { "${StageRules.ORB_SHORT[it]}${counts[it]}" },
+            "珠子顏色範例（含黑白盤面形狀）：" + (0 until 6).joinToString(" ") { "${StageRules.ORB_SHORT[it]}${counts[it] + ShapeStore(ctx).count(it)}" },
             "特殊符石樣子：" + special.joinToString(" ") { "${it.name}${cs.stateCount(it.id)}" },
             "記住的關卡：${ps.count} 個",
             "點擊規則：${rs.count} 條",
@@ -142,7 +142,7 @@ object OrbTypeDialog {
                     0 -> AlertDialog.Builder(ctx, dialogTheme())
                         .setTitle("清除哪種顏色的範例？（例如把木珠誤標成火，就清除「火」）")
                         .setItems((0 until 6).map { "${StageRules.ORB_SHORT[it]}：${counts[it]} 顆範例" }.toTypedArray()) { _, c ->
-                            confirm(ctx, "清除「${StageRules.ORB_SHORT[c]}」的範例？之後在校正畫面重新改一顆即可。") { cs.clearProtos(c); onChanged() }
+                            confirm(ctx, "清除「${StageRules.ORB_SHORT[c]}」的範例？之後在校正畫面重新改一顆即可。") { cs.clearProtos(c); ShapeStore(ctx).clear(c); onChanged() }
                         }.setNegativeButton("返回", null).show()
                     1 -> AlertDialog.Builder(ctx, dialogTheme())
                         .setTitle("清除哪種符石學過的樣子？")

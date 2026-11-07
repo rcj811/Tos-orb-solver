@@ -74,6 +74,7 @@ class AutoTurnService : AccessibilityService() {
     private lateinit var wm: WindowManager
     private lateinit var settings: AppSettings
     private lateinit var colorStore: ColorStore
+    private lateinit var shapeStore: ShapeStore
     private lateinit var ruleStore: RuleStore
     private lateinit var presetStore: StagePresetStore
     private var presets: MutableList<StagePreset> = ArrayList()
@@ -136,6 +137,7 @@ class AutoTurnService : AccessibilityService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         settings = AppSettings(this)
         colorStore = ColorStore(this)
+        shapeStore = ShapeStore(this).also { it.apply() }
         ruleStore = RuleStore(this)
         presetStore = StagePresetStore(this)
         presets = presetStore.load()
@@ -178,6 +180,7 @@ class AutoTurnService : AccessibilityService() {
     /** 設定頁修改顏色學習或點擊規則後呼叫 */
     fun reloadModel() {
         model = colorStore.load()
+        shapeStore.apply()
         stateModel = colorStore.loadStates()
         OrbTypeStore(this).apply()
         rules = ruleStore.load()
@@ -647,7 +650,7 @@ class AutoTurnService : AccessibilityService() {
                 run {
                     val fs = ArrayList<FloatArray>()
                     val ls = ArrayList<Int>()
-                    for (i in 0 until geo.cells) {
+                    if (!rec.gray) for (i in 0 until geo.cells) {
                         if (rec.confidence[i] >= 0.85f && rec.states[i] == OrbState.NORMAL) { fs.add(rec.features[i]); ls.add(rec.colors[i]) }
                     }
                     onlineLearned += model.learnOnline(fs, ls)
@@ -1320,10 +1323,12 @@ class AutoTurnService : AccessibilityService() {
         val f = calibFrame ?: return
         val base = OrbRecognizer.recognize(f, v.geo, model, stateModel)
         val work = model.copy()
+        val extra = ArrayList<Pair<Int, FloatArray>>()
         for (i in 0 until v.geo.cells) if (v.edited[i] && v.labels[i] in 0..5 && v.states[i] == OrbState.NORMAL) {
-            work.addProto(base.features[i], v.labels[i])
+            if (base.shapes != null) extra.add(v.labels[i] to base.shapes[i])   // 黑白盤面：用形狀當範例
+            else work.addProto(base.features[i], v.labels[i])
         }
-        val rec = OrbRecognizer.recognize(f, v.geo, work, stateModel)
+        val rec = OrbRecognizer.recognize(f, v.geo, work, stateModel, extra)
         for (i in 0 until v.geo.cells) {
             if (!v.edited[i]) { v.labels[i] = rec.colors[i]; v.conf[i] = rec.confidence[i] }
             if (!v.stateEdited[i]) v.states[i] = rec.states[i]
@@ -1395,6 +1400,11 @@ class AutoTurnService : AccessibilityService() {
             // 狀態：每個確定的格子都當作樣本（包含普通珠，讓模型分得出「普通」和特殊符石）
             rec.stateDesc?.let { sDescs.add(it[i]); sLabels.add(v.states[i]) }
             // 顏色：只用普通珠學習（強化、風化等外觀不同，不混進顏色中心）
+            // 黑白盤面：把確認／修正過的珠存進形狀資料庫，不拿灰色去學顏色
+            if (rec.shapes != null) {
+                if (v.edited[i] && k in 0..5 && v.states[i] == OrbState.NORMAL) shapeStore.add(k, rec.shapes[i])
+                continue
+            }
             if (k in 0..5 && v.states[i] == OrbState.NORMAL) {
                 feats.add(rec.features[i]); labels.add(k)
                 // 使用者親手改過的格子 → 存成範例珠（之後同種珠子都以它為準）

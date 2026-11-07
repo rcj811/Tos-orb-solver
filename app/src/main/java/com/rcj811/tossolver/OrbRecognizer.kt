@@ -190,7 +190,11 @@ class Recognition(
     val features: Array<FloatArray>,
     val states: IntArray = IntArray(colors.size),
     val stateDesc: Array<FloatArray>? = null,
+    val shapes: Array<FloatArray>? = null,   // 黑白盤面：每格的形狀描述（用形狀邊緣判斷時才有）
 ) {
+    /** 黑白盤面（顏色被拿掉，改用形狀判斷） */
+    val gray: Boolean get() = shapes != null
+
     val cells: Int get() = rows * 6
 
     /** 看不出來的格子：普通 / 強化狀態但顏色信心不足（有特殊狀態的格子視為已辨識） */
@@ -412,8 +416,22 @@ object OrbRecognizer {
     }
 
     /** stateModel 為 null 時不判斷狀態（自動偵測盤面時用，速度較快） */
-    fun recognize(frame: Frame, geo: BoardGeometry, model: ColorModel, stateModel: StateModel? = null): Recognition {
+    fun recognize(
+        frame: Frame, geo: BoardGeometry, model: ColorModel, stateModel: StateModel? = null,
+        extraShapes: List<Pair<Int, FloatArray>> = emptyList(),
+    ): Recognition {
         val n = geo.cells
+        // 黑白盤面（黑白符石）：顏色沒有意義，改用符石形狀邊緣判斷
+        if (ShapeMatcher.isGray(frame, geo)) {
+            val sr = ShapeMatcher.recognize(frame, geo, extraShapes)
+            val states = IntArray(n)
+            val descs = if (stateModel != null) Array(n) { stateDescriptor(frame, geo, it) } else null
+            if (stateModel != null && !stateModel.isEmpty && descs != null) for (i in 0 until n) {
+                val st = stateModel.classify(descs[i])
+                states[i] = if (st >= 0) st else OrbState.NORMAL   // 黑白珠樣子都「沒見過」，不當障礙
+            }
+            return Recognition(geo.rows, sr.colors, sr.confidence, Array(n) { FloatArray(3) }, states, descs, sr.shapes)
+        }
         val colors = IntArray(n)
         val conf = FloatArray(n)
         val feats = Array(n) { FloatArray(3) }

@@ -102,6 +102,7 @@ class MainActivity : Activity() {
 
         resetColorBtn = button("") {
             colorStore.reset()
+            ShapeStore(this).clear()
             AutoTurnService.instance?.reloadModel()
             refreshAuto()
         }

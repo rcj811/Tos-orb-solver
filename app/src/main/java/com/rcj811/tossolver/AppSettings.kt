@@ -359,3 +359,50 @@ fun appVersion(ctx: Context): String = runCatching {
     @Suppress("DEPRECATION")
     "build-${p.versionCode}（v${p.versionName}）"
 }.getOrDefault("版本未知")
+
+/** 黑白盤面的形狀資料庫：使用者在「校」確認／修正過的黑白珠形狀 */
+class ShapeStore(context: Context) {
+    private val sp = context.getSharedPreferences("shapes", Context.MODE_PRIVATE)
+
+    fun load(): List<Pair<Int, FloatArray>> = runCatching {
+        val arr = org.json.JSONArray(sp.getString("list", "[]"))
+        (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            val b = java.util.Base64.getDecoder().decode(o.getString("d"))
+            o.getInt("c") to ShapeMatcher.normalized(FloatArray(b.size) { b[it].toFloat() })
+        }
+    }.getOrDefault(emptyList())
+
+    private fun save(list: List<Pair<Int, FloatArray>>) {
+        val arr = org.json.JSONArray()
+        for ((c, d) in list) {
+            var m = 1e-6f
+            for (v in d) m = maxOf(m, kotlin.math.abs(v))
+            val b = ByteArray(d.size) { (d[it] / m * 127f).toInt().coerceIn(-127, 127).toByte() }
+            arr.put(org.json.JSONObject().put("c", c).put("d", java.util.Base64.getEncoder().encodeToString(b)))
+        }
+        sp.edit().putString("list", arr.toString()).apply()
+    }
+
+    /** 載入到辨識器（服務啟動、設定變更時呼叫） */
+    fun apply() {
+        ShapeMatcher.learned.clear()
+        ShapeMatcher.learned.addAll(load())
+    }
+
+    fun add(color: Int, shape: FloatArray) {
+        val list = load().toMutableList()
+        list.add(color to shape)
+        // 每種顏色最多留 30 個（留最新的）
+        while (list.count { it.first == color } > 30) list.removeAt(list.indexOfFirst { it.first == color })
+        save(list)
+        apply()
+    }
+
+    fun count(color: Int) = load().count { it.first == color }
+
+    fun clear(color: Int? = null) {
+        save(if (color == null) emptyList() else load().filter { it.first != color })
+        apply()
+    }
+}
