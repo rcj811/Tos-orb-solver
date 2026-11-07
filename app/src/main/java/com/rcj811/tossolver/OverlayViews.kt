@@ -52,6 +52,9 @@ class PathOverlayView(context: Context) : View(context) {
  * 校正畫面：格線疊在遊戲盤面上。
  * 拖曳格線內部 = 移動；拖曳右下圓點 = 調整大小；點一下格子 = 修正該格顏色（之後用來學習）。
  */
+/** 校正畫面：按住多久算長按（長按放開＝切換符石類別；長按後移動＝拖整個格線） */
+private const val HOLD_MS = 450L
+
 class CalibrationView(context: Context) : View(context) {
     var geo = BoardGeometry(0f, 0f, 100f, 5)
         set(v) { field = v; invalidate() }
@@ -138,12 +141,17 @@ class CalibrationView(context: Context) : View(context) {
         canvas.restore()
     }
 
+    /** 移動整個格線要「先按住不動 0.45 秒、再移動」；震一下表示可以開始拖 */
+    private var movedEarly = false
+    private val holdHint = Runnable { if (mode == 1 && !movedEarly) performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) }
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
         val x = e.rawX
         val y = e.rawY
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downX = x; downY = y; startGeo = geo
+                downX = x; downY = y; startGeo = geo; movedEarly = false
+                removeCallbacks(holdHint); postDelayed(holdHint, HOLD_MS)
                 mode = when {
                     hypot(x - geo.right, y - geo.bottom) < max(28 * density, geo.cell * 0.6f) -> 3
                     x in geo.left..geo.right && y in geo.top..geo.bottom -> 1
@@ -152,7 +160,10 @@ class CalibrationView(context: Context) : View(context) {
                 return mode != 0
             }
             MotionEvent.ACTION_MOVE -> {
-                if (mode == 1 && hypot(x - downX, y - downY) > slop) mode = 2
+                if (mode == 1 && hypot(x - downX, y - downY) > slop) {
+                    // 先按住夠久才移動 → 拖整個格線；一按就滑動 → 只是點珠子時手指晃動，不移動格線
+                    if (!movedEarly && e.eventTime - e.downTime >= HOLD_MS) mode = 2 else movedEarly = true
+                }
                 if (mode == 2) geo = startGeo.moved(x - downX, y - downY)
                 if (mode == 3) {
                     val g = startGeo
@@ -161,10 +172,12 @@ class CalibrationView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
+                removeCallbacks(holdHint)
                 if (mode == 1) {
-                    val i = geo.cellAt(x, y)
-                    if (i >= 0) {
-                        if (e.eventTime - e.downTime >= 450) {
+                    // 以按下去的那一格為準；手指滑到別格才放開就當作沒點
+                    val i = geo.cellAt(downX, downY)
+                    if (i >= 0 && geo.cellAt(x, y) == i) {
+                        if (e.eventTime - e.downTime >= HOLD_MS) {
                             // 長按：切換符石類別（普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 自訂…）
                             states[i] = OrbTypes.next(states[i])
                             stateEdited[i] = true
@@ -194,7 +207,7 @@ class CalibrationView(context: Context) : View(context) {
                 }
                 mode = 0
             }
-            MotionEvent.ACTION_CANCEL -> mode = 0
+            MotionEvent.ACTION_CANCEL -> { removeCallbacks(holdHint); mode = 0 }
         }
         return true
     }
