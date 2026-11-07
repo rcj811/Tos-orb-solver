@@ -71,6 +71,18 @@ class StageRulesTest {
     }
 
     @Test
+    fun mustColorsFeasibility() {
+        val board = IntArray(30) { it % 6 }                       // 每色 5 顆
+        assertEquals(null, StageRules().apply { elemMask = 0b11111 }.firstBatchImpossible(board))
+        val fewWater = IntArray(30) { if (it < 2) 1 else intArrayOf(0, 2, 3, 4, 5)[it % 5] }   // 水只有 2 顆
+        assertTrue(StageRules().apply { elemMask = 0b11 }.firstBatchImpossible(fewWater) != null)
+        // 兩個條件同時設定：NUM 12 ＋ 必消水火
+        val two = StageRules().apply { firstOrbsExact = 12; elemMask = 0b11 }
+        assertEquals(null, two.firstBatchImpossible(board))
+        assertEquals(12, two.toInts()[109]); assertEquals(0b11, two.toInts()[5])
+    }
+
+    @Test
     fun toggleTwiceClears() {
         val r = StageRules()
         r.toggle(10, StageRules.SHIELD)

@@ -126,6 +126,14 @@ class StageRules {
         val ubAll = (0 until 6).sumOf { cnt[it] / 3 }
         val ubAttr = (0 until 5).sumOf { cnt[it] / 3 }
         val ban = if (antiMask != 0) "（首消不能消 ${maskText(antiMask)}）" else ""
+        // 必消（多屬性盾）：每種必消的顏色，盤面上能消的至少要 3 顆
+        if (elemMask != 0) {
+            val all = IntArray(6)
+            for (c in colors) if (c in 0..5) all[c]++
+            val short = (0 until 6).filter { (elemMask shr it and 1) == 1 && all[it] < 3 }
+            if (short.isNotEmpty())
+                return "必消 ${maskText(elemMask)}，但這盤 " + short.joinToString("、") { "${ORB_SHORT[it]}只有 ${all[it]} 顆" } + "，湊不出三連"
+        }
         if (firstAttrMin > 0 && ubAttr < firstAttrMin)
             return "首消要 ≥$firstAttrMin 組屬性符石$ban，這盤最多只能 $ubAttr 組"
         // NUM 盾：每種顏色首批可消 0 或 3~該色顆數，看能不能湊出剛好 X 粒
