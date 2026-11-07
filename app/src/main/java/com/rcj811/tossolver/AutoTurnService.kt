@@ -531,7 +531,8 @@ class AutoTurnService : AccessibilityService() {
         presets = presetStore.load()
         lastProgressAt = SystemClock.uptimeMillis()
         updateBar()
-        toast(if (rules.isEmpty()) "自動執行：開始（只會轉珠；按「＋」新增點擊規則可自動過關卡）" else "自動執行：開始（${rules.size} 條點擊規則）")
+        val stageText = if (!stage.isEmpty()) "\n照關卡條件轉珠：${stage.summary()}" else ""
+        toast((if (rules.isEmpty()) "自動執行：開始（只會轉珠；按「＋」新增點擊規則可自動過關卡）" else "自動執行：開始（${rules.size} 條點擊規則）") + stageText)
         main.post(autoTick)
     }
 
@@ -1051,6 +1052,8 @@ class AutoTurnService : AccessibilityService() {
             btn("完成") {
                 closeStagePanel()
                 saveStagePreset(sig, presetIdx, edit)
+                // 存好條件後直接開始自動執行，照這關的條件轉珠破關
+                main.postDelayed({ if (!running && !busy) toggleAuto() }, 300)
             },
         ))
         refresh()
