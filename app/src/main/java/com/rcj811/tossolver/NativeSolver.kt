@@ -8,9 +8,10 @@ object NativeSolver {
 
     /**
      * rules：StageRules.toInts()，空陣列 = 一般盤
-     * 回傳 [found, combos, firstCombos, start, ms, 步數, goalsMet, 方向...]
+     * budgetMs：>0 時在這段計算時間內逐步加寬搜尋重算，取最好的解（解題在拖曳前，不佔轉珠時間）
+     * 回傳 [found, combos, firstCombos, start, ms, 步數, goalsMet, 消珠數, 方向...]
      */
-    external fun solve(cells: IntArray, rows: Int, beam: Int, maxPath: Int, dirs: Int, rules: IntArray): IntArray
+    external fun solve(cells: IntArray, rows: Int, beam: Int, maxPath: Int, dirs: Int, rules: IntArray, budgetMs: Int): IntArray
 
     /** 盤面原樣第一輪可消 combo 數；參數錯誤回傳 -1 */
     external fun countCombos(cells: IntArray, rows: Int): Int
@@ -31,15 +32,16 @@ class SolveResult(
     val ms: Int,
     val dirs: IntArray,
     val goalsMet: Boolean = false,
+    val cleared: Int = 0,
 ) {
     companion object {
-        private const val HEADER = 7
+        private const val HEADER = 8
 
         fun from(raw: IntArray): SolveResult {
             if (raw.size < HEADER) return SolveResult(false, 0, 0, -1, 0, IntArray(0))
             val len = raw[5].coerceIn(0, raw.size - HEADER)
             return SolveResult(raw[0] == 1, raw[1], raw[2], raw[3], raw[4],
-                raw.copyOfRange(HEADER, HEADER + len), raw[6] == 1)
+                raw.copyOfRange(HEADER, HEADER + len), raw[6] == 1, raw[7])
         }
     }
 

@@ -9,6 +9,7 @@ class AppSettings(context: Context) {
     private val sp = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
     companion object {
+        const val SAFETY_MS = 400
         val STEP_CHOICES = intArrayOf(50, 70, 90, 110, 140, 180)
         val TIME_CHOICES = intArrayOf(4, 5, 6, 8, 10, 15)
     }
@@ -69,11 +70,18 @@ class AppSettings(context: Context) {
             .putFloat("geoCell", g.cell).putInt("geoRows", g.rows)
             .apply()
 
-    /** 路徑長度上限：版面建議值與時間限制取較小者 */
+    /**
+     * 路徑長度上限：把轉珠時間用滿。
+     * 實際拖曳時間 = 按住 80ms + 步數 × 每步 + 放開前 60ms；再預留 SAFETY_MS 給系統手勢延遲。
+     * 例：5 秒、每步 90ms → (5000 − 140 − 400) / 90 = 49 步（舊版固定 35 步）。
+     */
     fun maxPathFor(rows: Int): Int {
-        val byTime = (timeLimitSec * 1000 - 300) / max(1, stepMs)
-        return max(6, min(25 + rows * 2, byTime))
+        val byTime = (timeLimitSec * 1000 - 140 - SAFETY_MS) / max(1, stepMs)
+        return byTime.coerceIn(6, 120)
     }
+
+    /** 解題計算時間（在拖曳前，不佔遊戲轉珠時間）：時間夠就加寬搜尋，找更多 combo / 消更多珠 */
+    val solveBudgetMs: Int get() = 1500
 }
 
 /** 記住的關卡（敵人畫面特徵 ＋ 機制）的存取 */

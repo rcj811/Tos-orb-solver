@@ -700,10 +700,11 @@ class AutoTurnService : AccessibilityService() {
         val beam = if (hardStage) maxOf(settings.beam, 1500) else settings.beam
         val maxPath = settings.maxPathFor(geo.rows)
         val dirs = settings.dirs
+        val budget = settings.solveBudgetMs
         val ruleInts = stage.toInts()
         val hasStage = !stage.isEmpty()
         worker.execute {
-            var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts))
+            var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
             main.post {
                 lastNoMove = false
                 if (!res.found || res.dirs.isEmpty()) {

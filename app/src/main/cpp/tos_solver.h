@@ -10,7 +10,7 @@ namespace tos {
 constexpr int COLS = 6;
 constexpr int MAX_ROWS = 8;
 constexpr int MAX_CELLS = COLS * MAX_ROWS;
-constexpr int MAX_PATH = 60;
+constexpr int MAX_PATH = 120;   // 路徑上限（步），實際長度依轉珠時間計算
 
 // 珠子編碼：低 3 bits 為珠種，高位為隨珠移動的狀態旗標
 enum Orb : uint8_t { FIRE = 0, WATER = 1, WOOD = 2, LIGHT = 3, DARK = 4, HEART = 5 };
@@ -78,6 +78,8 @@ struct Config {
     float weights[NUM_FEATURES] = {24.55f, 12.73f, 12.02f, 23.49f, 2.07f, 21.83f, 61.91f};
     float shieldGuide = 150; // 拼圖盾引導強度
     float elemGuide = 600;   // 多屬性盾引導強度
+    bool preferOrbs = true;  // combo 相同時，選消除珠數較多（傷害較高）的解，而不是較短的路徑
+    int timeBudgetMs = 0;    // >0：時間內逐步加寬 beam（×3）重算，取最好的解（不佔遊戲轉珠時間）
 };
 
 inline int defaultMaxPath(int rows) { return 25 + rows * 2; }
@@ -86,6 +88,7 @@ struct Solution {
     bool found = false;
     int combos = 0;
     int firstCombos = 0;
+    int cleared = 0;         // 消除的珠數
     bool goalsMet = false;   // 所有關卡條件都達成
     int start = -1;          // 起點格（row * 6 + col）
     std::vector<int> dirs;   // 方向序列

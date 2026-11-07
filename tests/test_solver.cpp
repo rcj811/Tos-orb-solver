@@ -220,6 +220,25 @@ int main() {
         CHECK(!replay(b, 0, {0}, c5).legal, "「不能碰」時路徑不能經過");
     }
 
+    {
+        // 轉珠時間用滿：同 combo 時選消珠多的解、路徑不超過上限、加寬搜尋不變差
+        std::mt19937 rg(77); int n = 60; double cOld = 0, cNew = 0, oOld = 0, oNew = 0; int over = 0, bad = 0;
+        for (int k = 0; k < n; k++) {
+            uint8_t bb[MAX_CELLS]; do { for (int i = 0; i < 30; i++) bb[i] = rg() % 6; } while (countCombos(bb, 5) > 0);
+            Config a; a.maxPath = 35; a.preferOrbs = false;
+            Config z; z.maxPath = 49; z.timeBudgetMs = 800;
+            Solution sa = solve(bb, a), sz = solve(bb, z);
+            Outcome oz = replay(bb, sz.start, sz.dirs, z);
+            if (!oz.legal || oz.combos != sz.combos) bad++;
+            if ((int)sz.dirs.size() > 49) over++;
+            cOld += sa.combos; cNew += sz.combos; oOld += sa.cleared; oNew += sz.cleared;
+        }
+        std::printf("轉珠時間用滿：combo %.2f → %.2f，消珠 %.1f → %.1f\n", cOld / n, cNew / n, oOld / n, oNew / n);
+        CHECK(bad == 0, "長路徑重播一致");
+        CHECK(over == 0, "路徑不超過時間上限");
+        CHECK(cNew >= cOld && oNew > oOld, "combo 不變差、消珠變多");
+    }
+
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);
     return failures ? 1 : 0;
 }

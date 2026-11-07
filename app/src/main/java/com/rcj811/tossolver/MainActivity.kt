@@ -515,8 +515,9 @@ class MainActivity : Activity() {
         val r = rows
         val b = settings.beam
         val d = settings.dirs
+        val mp = settings.maxPathFor(r)
         Thread {
-            val res = SolveResult.from(NativeSolver.solve(cells, r, b, 25 + r * 2, d, IntArray(0)))
+            val res = SolveResult.from(NativeSolver.solve(cells, r, b, mp, d, IntArray(0), settings.solveBudgetMs))
             runOnUiThread { showResult(res) }
         }.start()
     }
@@ -529,7 +530,8 @@ class MainActivity : Activity() {
             return
         }
         board.solution = res
-        status.text = "${res.combos} combo（首消 ${res.firstCombos}）・${res.dirs.size} 步・${res.ms} ms"
+        val sec = (140 + res.dirs.size * settings.stepMs) / 1000.0
+        status.text = "${res.combos} combo（首消 ${res.firstCombos}）・消 ${res.cleared} 顆・${res.dirs.size} 步（約 %.1f 秒）・計算 ${res.ms} ms".format(sec)
         val arrows = StringBuilder()
         for (k in res.dirs.indices) {
             arrows.append(Dirs.ARROW[res.dirs[k]])

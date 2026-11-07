@@ -185,6 +185,8 @@ struct State {
     uint8_t len;
     float weight;
     int combos;
+    int cleared;
+    int first;
     bool ok;
     uint64_t visited;
     uint8_t used[MAXN];
@@ -197,6 +199,8 @@ void score(State& s) {
     const Config& cfg = X.cfg;
     Info in = resolve(s.b);
     s.combos = in.combos;
+    s.cleared = in.cleared;
+    s.first = in.first;
     float f[NUM_FEATURES];
     features(in, s.len, f);
     float w = in.combos * 1000.0f;
@@ -224,6 +228,11 @@ void score(State& s) {
 bool better(const State& a, const State& b) {
     if (a.ok != b.ok) return a.ok;
     if (a.combos != b.combos) return a.combos > b.combos;
+    if (X.cfg.preferOrbs) {
+        // 同 combo：消越多珠傷害越高，其次首消越多，最後才比路徑短
+        if (a.cleared != b.cleared) return a.cleared > b.cleared;
+        if (a.first != b.first) return a.first > b.first;
+    }
     return a.len < b.len;
 }
 
@@ -385,10 +394,25 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
     Solution r;
     State best;
     if (!beamSearch(b, best)) return r;
+    if (cfg.timeBudgetMs > 0) {
+        // 計算時間還夠：beam ×3 重算，直到時間用完或 beam 太大
+        int beam = cfg.beam;
+        for (int round = 0; round < 4; round++) {
+            double used = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            double lastCost = used;   // 下一輪約是上一輪的 3 倍以上
+            if (used + lastCost * 3.5 > cfg.timeBudgetMs || beam * 3 > 20000) break;
+            beam *= 3;
+            X.cfg.beam = beam;
+            State cand;
+            if (beamSearch(b, cand) && better(cand, best)) best = cand;
+        }
+        X.cfg.beam = cfg.beam;
+    }
     Info in = resolve(best.b);
     r.found = true;
     r.combos = in.combos;
     r.firstCombos = in.first;
+    r.cleared = in.cleared;
     r.goalsMet = best.ok;
     r.start = best.start;
     r.dirs.assign(best.path, best.path + best.len);
