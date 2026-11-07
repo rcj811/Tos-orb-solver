@@ -83,6 +83,22 @@ class StageRulesTest {
     }
 
     @Test
+    fun tappedOrbMarks() {
+        val r = StageRules().apply { toggle(0, StageRules.MUST_ORB); toggle(5, StageRules.NO_ORB); firstOrbsExact = 12 }
+        val cells = IntArray(30) { it % 6 }
+        r.applyOrbMarks(cells)
+        assertEquals(0 or 0x10, cells[0]); assertEquals(5 or 0x20, cells[5]); assertEquals(1, cells[1])
+        assertEquals(0, r.toInts()[12])                       // 點珠標記不當格子規則傳給求解器
+        val saved = r.withoutOrbMarks()
+        assertEquals(0, saved.count(StageRules.MUST_ORB)); assertEquals(12, saved.firstOrbsExact)
+        assertTrue(StageRules().apply { toggle(0, StageRules.MUST_ORB) }.withoutOrbMarks().isEmpty())
+        assertEquals(null, r.firstBatchImpossible(IntArray(30) { it % 6 }))
+        // 火只有 2 顆卻標必消 → 不可能
+        val few = IntArray(30) { if (it < 2) 0 else 1 + it % 5 }
+        assertTrue(StageRules().apply { toggle(0, StageRules.MUST_ORB) }.firstBatchImpossible(few) != null)
+    }
+
+    @Test
     fun toggleTwiceClears() {
         val r = StageRules()
         r.toggle(10, StageRules.SHIELD)

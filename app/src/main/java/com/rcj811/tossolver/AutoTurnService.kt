@@ -725,6 +725,7 @@ class AutoTurnService : AccessibilityService() {
     private fun solveAndAct(rec: Recognition, geo: BoardGeometry, done: (Boolean) -> Unit) {
         // 符石狀態轉成求解旗標（風化/黏腐、觸電、冰封/石化）；無法辨識的格子當冰封：不碰、也不算消除
         val cells = rec.solverCells()
+        stage.applyOrbMarks(cells)   // 自點必消 / 不消（只有按「完成」轉這一盤時才會有）
         val presetIdx = activePreset
         val hardStage = presetIdx in presets.indices && presets[presetIdx].hard
         // 自我學習：這關常常破不了 → 自動提高搜尋品質
@@ -1005,7 +1006,7 @@ class AutoTurnService : AccessibilityService() {
         }
 
         // 筆刷：點盤面格子時要設定的機制
-        val brushNames = arrayOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)", "裂痕", "起點(綠)", "終點(紅)")
+        val brushNames = arrayOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)", "裂痕", "起點(綠)", "終點(紅)", "必消(點珠)", "不消(點珠)")
         val brushButtons = ArrayList<Button>()
         var brush = 0
         fun paintBrushes() {
@@ -1022,6 +1023,8 @@ class AutoTurnService : AccessibilityService() {
                 4 -> edit.toggle(i, StageRules.CRACK)
                 5 -> edit.green = if (edit.green == i) -1 else i
                 6 -> edit.red = if (edit.red == i) -1 else i
+                7 -> { edit.toggle(i, StageRules.MUST_ORB); if (edit.cellFlags[i] and StageRules.MUST_ORB != 0) edit.cellFlags[i] = edit.cellFlags[i] and StageRules.NO_ORB.inv() }
+                8 -> { edit.toggle(i, StageRules.NO_ORB); if (edit.cellFlags[i] and StageRules.NO_ORB != 0) edit.cellFlags[i] = edit.cellFlags[i] and StageRules.MUST_ORB.inv() }
             }
             refresh()
         }
@@ -1077,6 +1080,7 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(summary)
         panel.addView(rowOf(brushButtons[0], brushButtons[1], brushButtons[2], brushButtons[3]))
         panel.addView(rowOf(brushButtons[4], brushButtons[5], brushButtons[6]))
+        panel.addView(rowOf(brushButtons[7], brushButtons[8]))
         panel.addView(rowOf(comboBtn, firstBtn, exactBtn))
         panel.addView(rowOf(attrBtn, orbsBtn))
         panel.addView(rowOf(stickyBtn, fireBtn))
@@ -1119,7 +1123,7 @@ class AutoTurnService : AccessibilityService() {
     private fun saveStagePreset(sig: FloatArray, presetIdx: Int, edit: StageRules) {
         val list = presetStore.load()
         val idx = if (presetIdx in list.indices) presetIdx else -1
-        if (edit.isEmpty()) {
+        if (edit.withoutOrbMarks().isEmpty()) {
             if (idx >= 0) {
                 list.removeAt(idx)
                 toast("已刪除記住的關卡 ${idx + 1}，這關會照一般盤打")
@@ -1127,10 +1131,10 @@ class AutoTurnService : AccessibilityService() {
                 toast("沒有設定機制，這關會照一般盤打")
             }
         } else if (idx >= 0) {
-            list[idx] = list[idx].withRules(StageRules().apply { copyFrom(edit) }, sig)
+            list[idx] = list[idx].withRules(edit.withoutOrbMarks(), sig)
             toast("已更新關卡 ${idx + 1}：${edit.summary()}")
         } else {
-            list.add(StagePreset(sig, StageRules().apply { copyFrom(edit) }))
+            list.add(StagePreset(sig, edit.withoutOrbMarks()))
             toast("已記住關卡 ${list.size}：${edit.summary()}。之後遇到會自動套用")
         }
         presetStore.save(list)

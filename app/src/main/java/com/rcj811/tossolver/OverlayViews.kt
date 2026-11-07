@@ -240,6 +240,16 @@ class StageRulesView(context: Context) : View(context) {
                 canvas.drawLine(x + s * 0.8f, y + s * 0.2f, x + s * 0.2f, y + s * 0.8f, stroke)
             }
             text.textSize = s * 0.3f
+            if (f and StageRules.MUST_ORB != 0) {
+                fill.color = Color.parseColor("#2962FF")
+                canvas.drawCircle(x + s * 0.78f, y + s * 0.22f, s * 0.18f, fill)
+                canvas.drawText("必", x + s * 0.78f, y + s * 0.32f, text)
+            }
+            if (f and StageRules.NO_ORB != 0) {
+                fill.color = Color.parseColor("#616161")
+                canvas.drawCircle(x + s * 0.78f, y + s * 0.22f, s * 0.18f, fill)
+                canvas.drawText("禁", x + s * 0.78f, y + s * 0.32f, text)
+            }
             if (i == rules.green) {
                 fill.color = Color.parseColor("#00C853")
                 canvas.drawCircle(x + s / 2, y + s / 2, s * 0.25f, fill)

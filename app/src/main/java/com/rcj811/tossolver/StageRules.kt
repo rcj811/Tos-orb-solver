@@ -17,6 +17,9 @@ class StageRules {
         const val NO_TOUCH = 4      // 燃燒 / 地獄火 / 黏手之地 / 雷射（不能碰）
         const val FLAME_END = 8     // 火焰區（最後一步要停在其中一格）
         const val BLACK_HOLE = 16   // 黑洞（最後一步不能停在這）
+        const val MUST_ORB = 32     // 自點必消：這一格目前的珠子這回合一定要消掉（只用在這一盤）
+        const val NO_ORB = 64       // 自點不消：這一格目前的珠子這回合不能消（只用在這一盤）
+        const val ORB_MARKS = MUST_ORB or NO_ORB
 
         val ORB_SHORT = arrayOf("火", "水", "木", "光", "暗", "心")
     }
@@ -45,6 +48,21 @@ class StageRules {
 
     fun count(flag: Int) = cellFlags.count { it and flag != 0 }
 
+    /** 把自點的必消 / 不消標記加到這一盤的珠子上（跟著珠子走：0x10 必須消除、0x20 不能消除） */
+    fun applyOrbMarks(cells: IntArray) {
+        for (i in cells.indices) {
+            if (i >= MAX_CELLS) break
+            if (cellFlags[i] and MUST_ORB != 0) cells[i] = cells[i] or 0x10
+            if (cellFlags[i] and NO_ORB != 0) cells[i] = cells[i] or 0x20
+        }
+    }
+
+    /** 存成關卡記錄時去掉點珠標記（每盤珠子位置都不同，不能沿用） */
+    fun withoutOrbMarks(): StageRules = StageRules().also { r ->
+        r.copyFrom(this)
+        for (i in 0 until MAX_CELLS) r.cellFlags[i] = r.cellFlags[i] and ORB_MARKS.inv()
+    }
+
     fun toggle(cell: Int, flag: Int) {
         if (cell !in 0 until MAX_CELLS) return
         cellFlags[cell] = cellFlags[cell] xor flag
@@ -62,7 +80,7 @@ class StageRules {
         v[8] = 6; v[9] = 0
         v[10] = if (forceStart >= 0) forceStart else green; v[11] = red
         for (i in 0 until MAX_CELLS) {
-            v[12 + i] = cellFlags[i]
+            v[12 + i] = cellFlags[i] and ORB_MARKS.inv()   // 點珠標記改由珠子旗標傳入
             v[12 + MAX_CELLS + i] = -1
         }
         v[INTS_V1] = firstAttrMin
@@ -86,6 +104,8 @@ class StageRules {
         if (count(NO_TOUCH) > 0) parts.add("燃燒 ${count(NO_TOUCH)}")
         if (count(FLAME_END) > 0) parts.add("火焰區 ${count(FLAME_END)}")
         if (count(BLACK_HOLE) > 0) parts.add("黑洞 ${count(BLACK_HOLE)}")
+        if (count(MUST_ORB) > 0) parts.add("必消珠 ${count(MUST_ORB)} 顆")
+        if (count(NO_ORB) > 0) parts.add("不消珠 ${count(NO_ORB)} 顆")
         if (count(CRACK) > 0) parts.add("裂痕 ${count(CRACK)}")
         if (green >= 0 || red >= 0) parts.add("漩渦")
         if (sticky) parts.add("黏手路徑")
@@ -126,6 +146,18 @@ class StageRules {
         val ubAll = (0 until 6).sumOf { cnt[it] / 3 }
         val ubAttr = (0 until 5).sumOf { cnt[it] / 3 }
         val ban = if (antiMask != 0) "（首消不能消 ${maskText(antiMask)}）" else ""
+        // 自點必消：那顆珠的顏色在盤面上（扣掉不能消的）至少要 3 顆
+        run {
+            val avail = IntArray(6)
+            for (i in colors.indices) if (colors[i] in 0..5 && (i >= MAX_CELLS || cellFlags[i] and NO_ORB == 0)) avail[colors[i]]++
+            for (i in colors.indices) {
+                if (i >= MAX_CELLS || cellFlags[i] and MUST_ORB == 0) continue
+                val c = colors[i]
+                val r = i / 6 + 1; val col = i % 6 + 1
+                if (c !in 0..5) return "第 $r 列第 $col 格標了必消，但那顆珠不能消除"
+                if (avail[c] < 3) return "第 $r 列第 $col 格的${ORB_SHORT[c]}珠標了必消，但能消的${ORB_SHORT[c]}只有 ${avail[c]} 顆"
+            }
+        }
         // 必消（多屬性盾）：每種必消的顏色，盤面上能消的至少要 3 顆
         if (elemMask != 0) {
             val all = IntArray(6)
