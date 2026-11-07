@@ -502,8 +502,12 @@ class AutoTurnService : AccessibilityService() {
     // ---------------- 只轉這一回合 ----------------
 
     /** forced 不為 null：直接用這組條件（關卡面板按「完成」時），不重新比對關卡 */
+    /** 「關」按完成、「＋」讀卡後轉的這一回合：條件必須嚴格符合，找不到就不轉 */
+    private var strictTurn = false
+
     private fun onOnceTap(forced: StageRules? = null) {
         if (running || busy || !checkReady()) return
+        strictTurn = forced != null
         busy = true
         updateBar("…")
         captureClean { frame ->
@@ -520,8 +524,13 @@ class AutoTurnService : AccessibilityService() {
             val go = {
                 val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(feasColors(rec))
                 // 條件在這盤做不到：照樣轉，用最接近條件的轉法（不要停住不動）
-                if (why != null) toast("$why，照最接近的轉法轉")
-                solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
+                if (why != null && strictTurn) {
+                    alertManual("$why，沒有轉珠（「關」的條件要嚴格做到）")
+                    finishOnce(null)
+                } else {
+                    if (why != null) toast("$why，照最接近的轉法轉")
+                    solveAndAct(rec, geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "拖曳被中斷") }
+                }
             }
             // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
             if (forced != null && forced.firstOrbsExact > 0) go() else withNum(frame, geo) { go() }
@@ -556,6 +565,7 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun finishOnce(msg: String?) {
+        strictTurn = false
         busy = false
         updateBar()
         if (msg != null) toast(msg)
@@ -763,8 +773,13 @@ class AutoTurnService : AccessibilityService() {
         worker.execute {
             var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
             // 關卡條件沒全部符合：用更大的搜尋範圍再找一次
+            // （嚴格模式再加大一次，盡量找到完全符合的轉法）
             if (res.found && !res.goalsMet && hasStage) {
                 val again = SolveResult.from(NativeSolver.solve(cells, geo.rows, maxOf(1500, beam * 2), maxPath, dirs, ruleInts, 0))
+                if (again.goalsMet) res = again
+            }
+            if (res.found && !res.goalsMet && hasStage && strictTurn) {
+                val again = SolveResult.from(NativeSolver.solve(cells, geo.rows, 5000, maxPath, dirs, ruleInts, 0))
                 if (again.goalsMet) res = again
             }
             main.post {
@@ -792,6 +807,13 @@ class AutoTurnService : AccessibilityService() {
                     if (!wasHard && p.hard) toast("這關常常破不了，之後會自動提高搜尋品質")
                 }
                 // 找不到完全符合條件的轉法：照樣轉最接近的（求解器已把條件差距算進分數），只提示不停住
+                // 「關」設定的條件要嚴格執行：找不到完全符合的轉法就不轉，告訴你哪裡做不到
+                if (!lastGoalsOk && strictTurn) {
+                    lastNoMove = false
+                    alertManual("這盤找不到完全符合「${stage.summary()}」的轉法，沒有轉珠（可用技能轉珠後再按一次，或改條件）")
+                    done(false)
+                    return@post
+                }
                 if (!lastGoalsOk) toast("這盤沒找到完全符合「${stage.summary()}」的轉法，照最接近的轉")
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)
@@ -1047,7 +1069,7 @@ class AutoTurnService : AccessibilityService() {
         }
         val summary = TextView(themed).apply {
             setTextColor(Color.WHITE)
-            textSize = 13f
+            textSize = 15f
             setPadding(dp(4), dp(2), dp(4), dp(4))
         }
         fun refresh() {
@@ -1057,7 +1079,7 @@ class AutoTurnService : AccessibilityService() {
         fun btn(label: String, onClick: (Button) -> Unit) = Button(themed).apply {
             text = label
             isAllCaps = false
-            textSize = 12f
+            textSize = 15f
             minHeight = 0
             minimumHeight = 0
             setPadding(dp(2), dp(6), dp(2), dp(6))
@@ -1127,12 +1149,12 @@ class AutoTurnService : AccessibilityService() {
         // 屬性勾選：多屬性盾（必消）與反屬性（首消禁）
         fun maskRow(title: String, get: () -> Int, set: (Int) -> Unit): LinearLayout {
             val row = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            row.addView(TextView(themed).apply { text = title; setTextColor(Color.WHITE); textSize = 12f; setPadding(dp(4), 0, dp(4), 0) })
+            row.addView(TextView(themed).apply { text = title; setTextColor(Color.WHITE); textSize = 15f; setPadding(dp(4), 0, dp(4), 0) })
             for (c in 0 until 6) {
                 val chip = TextView(themed).apply {
                     text = StageRules.ORB_SHORT[c]
                     gravity = Gravity.CENTER
-                    textSize = 14f
+                    textSize = 16f
                     setTextColor(Color.WHITE)
                 }
                 fun paint() {
@@ -1254,12 +1276,12 @@ class AutoTurnService : AccessibilityService() {
         }
         val info = TextView(themed).apply {
             setTextColor(Color.WHITE)
-            textSize = 13f
+            textSize = 15f
         }
         fun btn(label: String, onClick: (Button) -> Unit) = Button(themed).apply {
             text = label
             isAllCaps = false
-            textSize = 13f
+            textSize = 15f
             setOnClickListener { onClick(this) }
         }
         val rowA = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL }

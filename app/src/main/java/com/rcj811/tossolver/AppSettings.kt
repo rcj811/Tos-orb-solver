@@ -10,9 +10,11 @@ class AppSettings(context: Context) {
 
     companion object {
         const val SAFETY_MS = 400
-        val STEP_CHOICES = intArrayOf(30, 40, 50, 70, 90, 110, 140)
+        val STEP_CHOICES = intArrayOf(30, 40, 50, 60, 70, 90, 110, 140)
         /** 最快的穩定速度（每格 40ms ≈ 60fps 下每格 2.4 個畫面，遊戲不會漏格） */
         const val FASTEST_STEP = 40
+        /** 預設轉珠速度：每格 60ms（比最快慢一點，遊戲更不容易漏格） */
+        const val DEFAULT_STEP = 60
         val TIME_CHOICES = intArrayOf(4, 5, 6, 8, 10, 15)
     }
 
@@ -30,8 +32,9 @@ class AppSettings(context: Context) {
     var stepMs: Int
         get() {
             // 一次性改成最快速度（舊版預設 90ms）
-            if (!sp.getBoolean("speedV2", false)) sp.edit().putInt("stepMs", FASTEST_STEP).putBoolean("speedV2", true).apply()
-            return sp.getInt("stepMs", FASTEST_STEP)
+            // 一次性改成預設速度 60ms（舊版預設 90ms、40ms）
+            if (!sp.getBoolean("speedV3", false)) sp.edit().putInt("stepMs", DEFAULT_STEP).putBoolean("speedV3", true).apply()
+            return sp.getInt("stepMs", DEFAULT_STEP)
         }
         set(v) = sp.edit().putInt("stepMs", v).apply()
 
