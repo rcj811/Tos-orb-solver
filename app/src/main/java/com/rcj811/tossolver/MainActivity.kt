@@ -75,6 +75,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(title("自轉珠", 24f))
+        root.addView(TextView(this).apply { text = "目前版本：${appVersion(this@MainActivity)}"; textSize = 14f })
         root.addView(note("神魔之塔自動轉珠").apply { setPadding(0, 0, 0, 0) })
 
         // ---------- 自動轉珠 ----------

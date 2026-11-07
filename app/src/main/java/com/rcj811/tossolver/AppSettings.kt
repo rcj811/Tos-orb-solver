@@ -352,3 +352,10 @@ class ColorStore(context: Context) {
 
     fun reset() = sp.edit().clear().apply()
 }
+
+/** 目前安裝的版本（對應 GitHub 發布頁的 build-N），例如「build-29（v0.1.29）」 */
+fun appVersion(ctx: Context): String = runCatching {
+    val p = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+    @Suppress("DEPRECATION")
+    "build-${p.versionCode}（v${p.versionName}）"
+}.getOrDefault("版本未知")

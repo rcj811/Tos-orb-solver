@@ -145,6 +145,7 @@ class AutoTurnService : AccessibilityService() {
         OrbTypeStore(this).apply()
         rules = ruleStore.load()
         addPathView()
+        Toast.makeText(this, "自轉珠 ${appVersion(this)} 已啟動", Toast.LENGTH_LONG).show()
         addToolbar()
         if (Build.VERSION.SDK_INT < 30) toast("自動截圖需要 Android 11 以上")
     }
@@ -552,7 +553,7 @@ class AutoTurnService : AccessibilityService() {
         lastProgressAt = SystemClock.uptimeMillis()
         updateBar()
         val stageText = if (!stage.isEmpty()) "\n照關卡條件轉珠：${stage.summary()}" else ""
-        toast((if (rules.isEmpty()) "自動執行：開始（只會轉珠；按「＋」新增點擊規則可自動過關卡）" else "自動執行：開始（${rules.size} 條點擊規則）") + stageText)
+        toast("[${appVersion(this)}] " + (if (rules.isEmpty()) "自動執行：開始（只會轉珠；按「＋」新增點擊規則可自動過關卡）" else "自動執行：開始（${rules.size} 條點擊規則）") + stageText)
         main.post(autoTick)
     }
 
@@ -972,7 +973,7 @@ class AutoTurnService : AccessibilityService() {
             setPadding(dp(4), dp(2), dp(4), dp(4))
         }
         fun refresh() {
-            summary.text = "目前：${edit.summary()}\n選一種筆刷後點下方盤面格子（再點一次取消）。"
+            summary.text = "目前：${edit.summary()}　［${appVersion(this)}］\n選一種筆刷後點下方盤面格子（再點一次取消）。按「完成」＝照這些條件只轉這一回合。"
             board.invalidate()
         }
         fun btn(label: String, onClick: (Button) -> Unit) = Button(themed).apply {
