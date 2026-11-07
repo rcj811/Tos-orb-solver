@@ -128,7 +128,14 @@ class StateModelTest {
             val gone = Recognition(5, IntArray(30), FloatArray(30) { 0.9f }, Array(30) { FloatArray(3) }, IntArray(30) { 99 })
             assertEquals(0x60, gone.solverCell(0))
             // 長按循環：內建 → 自訂 → 回到普通
-            assertEquals(10, OrbTypes.next(OrbState.LOCKED))
+            assertEquals(OrbState.START, OrbTypes.next(OrbState.LOCKED))
+            assertEquals(10, OrbTypes.next(OrbState.START))
+            // GO 起點：顏色信心低也不當障礙，且找得到起點格
+            val go = Recognition(5, IntArray(30) { 3 }, FloatArray(30) { if (it == 19) 0.3f else 0.9f }, Array(30) { FloatArray(3) },
+                IntArray(30) { if (it == 19) OrbState.START else 0 })
+            assertEquals(19, go.startCell())
+            assertEquals(3, go.solverCell(19))
+            assertEquals(-1, rec.startCell())
             assertEquals(OrbState.NORMAL, OrbTypes.next(13))
             assertEquals("化", OrbTypes.get(10).badge)
             assertEquals("可以碰・必須消除", OrbTypes.get(10).describe())
