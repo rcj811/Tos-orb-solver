@@ -25,6 +25,7 @@ class StageRules {
     var firstMin = 0       // 首消 Combo 盾（≥X）
     var firstExact = -1    // 固定首消 X Combo（-1 = 無）
     var firstAttrMin = 0   // 首消 ≥X 組屬性符石盾（不含心珠）
+    var firstOrbsMin = 0   // 首消符石數量盾（NUM X）：首批消除 ≥X 粒
     var antiMask = 0       // 首消不能消的珠種（bit = 珠種）
     var elemMask = 0       // 本回合必須消的珠種（多屬性盾）
     var sticky = false     // 黏手路徑：碰過的格不能再碰
@@ -33,11 +34,11 @@ class StageRules {
     var red = -1           // 紅漩渦：終點
     val cellFlags = IntArray(MAX_CELLS)
 
-    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && antiMask == 0 && elemMask == 0 &&
+    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && firstOrbsMin == 0 && antiMask == 0 && elemMask == 0 &&
         !sticky && !firePath && green < 0 && red < 0 && cellFlags.all { it == 0 }
 
     fun clear() {
-        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; antiMask = 0; elemMask = 0
+        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; firstOrbsMin = 0; antiMask = 0; elemMask = 0
         sticky = false; firePath = false; green = -1; red = -1
         cellFlags.fill(0)
     }
@@ -65,6 +66,7 @@ class StageRules {
             v[12 + MAX_CELLS + i] = -1
         }
         v[INTS_V1] = firstAttrMin
+        v[INTS_V1 + 1] = firstOrbsMin
         return v
     }
 
@@ -78,6 +80,7 @@ class StageRules {
         if (firstMin > 0) parts.add("首消≥$firstMin")
         if (firstExact >= 0) parts.add("首消剛好 $firstExact")
         if (firstAttrMin > 0) parts.add("首消屬性≥$firstAttrMin")
+        if (firstOrbsMin > 0) parts.add("首消≥${firstOrbsMin}粒")
         if (elemMask != 0) parts.add("必消 ${maskText(elemMask)}")
         if (antiMask != 0) parts.add("首消禁 ${maskText(antiMask)}")
         if (count(NO_TOUCH) > 0) parts.add("燃燒 ${count(NO_TOUCH)}")
@@ -91,7 +94,7 @@ class StageRules {
     }
 
     fun copyFrom(o: StageRules) {
-        comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact; firstAttrMin = o.firstAttrMin
+        comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact; firstAttrMin = o.firstAttrMin; firstOrbsMin = o.firstOrbsMin
         antiMask = o.antiMask; elemMask = o.elemMask; sticky = o.sticky; firePath = o.firePath
         green = o.green; red = o.red
         o.cellFlags.copyInto(cellFlags)
@@ -103,6 +106,7 @@ class StageRules {
         if (o.firstMin > 0) firstMin = o.firstMin
         if (o.firstExact >= 0) firstExact = o.firstExact
         if (o.firstAttrMin > 0) firstAttrMin = o.firstAttrMin
+        if (o.firstOrbsMin > 0) firstOrbsMin = o.firstOrbsMin
         antiMask = antiMask or o.antiMask
         elemMask = elemMask or o.elemMask
         sticky = sticky || o.sticky
@@ -124,6 +128,9 @@ class StageRules {
         val ban = if (antiMask != 0) "（首消不能消 ${maskText(antiMask)}）" else ""
         if (firstAttrMin > 0 && ubAttr < firstAttrMin)
             return "首消要 ≥$firstAttrMin 組屬性符石$ban，這盤最多只能 $ubAttr 組"
+        val ubOrbs = (0 until 6).sumOf { cnt[it] / 3 * 3 + if (cnt[it] >= 3) cnt[it] % 3 else 0 }
+        if (firstOrbsMin > 0 && ubOrbs < firstOrbsMin)
+            return "首消要 ≥$firstOrbsMin 粒符石$ban，這盤最多只能 $ubOrbs 粒"
         if (firstMin > 0 && ubAll < firstMin)
             return "首消要 ≥$firstMin combo$ban，這盤最多只能 $ubAll combo"
         if (firstExact > 0 && ubAll < firstExact)
@@ -133,7 +140,7 @@ class StageRules {
 
     /** 簡單文字格式（存檔用）：key=value;... */
     fun serialize(): String = listOf(
-        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "a=$antiMask", "e=$elemMask",
+        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "fo=$firstOrbsMin", "a=$antiMask", "e=$elemMask",
         "s=${if (sticky) 1 else 0}", "p=${if (firePath) 1 else 0}", "g=$green", "r=$red",
         "cells=" + cellFlags.joinToString(","),
     ).joinToString(";")
@@ -150,6 +157,7 @@ class StageRules {
                 "f" -> firstMin = v.toIntOrNull() ?: 0
                 "x" -> firstExact = v.toIntOrNull() ?: -1
                 "fa" -> firstAttrMin = v.toIntOrNull() ?: 0
+                "fo" -> firstOrbsMin = v.toIntOrNull() ?: 0
                 "a" -> antiMask = v.toIntOrNull() ?: 0
                 "e" -> elemMask = v.toIntOrNull() ?: 0
                 "s" -> sticky = v == "1"

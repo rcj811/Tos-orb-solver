@@ -56,6 +56,17 @@ class StageRulesTest {
     }
 
     @Test
+    fun firstOrbsShield() {
+        val r = StageRules().apply { firstOrbsMin = 15 }
+        assertTrue(!r.isEmpty())
+        assertEquals(15, r.toInts()[109])
+        assertEquals(15, StageRules().apply { deserialize(r.serialize()) }.firstOrbsMin)
+        assertEquals(null, r.firstBatchImpossible(IntArray(30) { it % 6 }))
+        // 能消的只有 12 顆 → 不可能 15 粒
+        assertTrue(StageRules().apply { firstOrbsMin = 15 }.firstBatchImpossible(IntArray(30) { if (it < 12) it % 4 else -1 }) != null)
+    }
+
+    @Test
     fun toggleTwiceClears() {
         val r = StageRules()
         r.toggle(10, StageRules.SHIELD)

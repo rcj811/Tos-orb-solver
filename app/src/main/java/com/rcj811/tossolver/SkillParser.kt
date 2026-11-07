@@ -52,7 +52,7 @@ object SkillParser {
         t = t.replace("≥=", "≥").replace("＝", "").replace("=", "")
         t = t.replace(Regex("\\s+"), "")
         val simp = mapOf(
-            "连击" to "連擊", "連击" to "連擊", "组" to "組", "属性" to "屬性", "燃烧" to "燃燒", "轨" to "軌",
+            "连击" to "連擊", "颗" to "顆", "数量" to "數量", "連击" to "連擊", "组" to "組", "属性" to "屬性", "燃烧" to "燃燒", "轨" to "軌",
             "电击" to "電擊", "风化" to "風化", "冻结" to "凍結", "黏腐之轨" to "黏腐之軌", "盾牌" to "盾",
             "零化" to "零化", "固定" to "固定", "五属" to "五屬", "三属" to "三屬", "四属" to "四屬", "二属" to "二屬",
         )
@@ -97,7 +97,14 @@ object SkillParser {
             var hit = false
             fun ok(label: String) { applied.add(label); hit = true }
 
-            Regex("首消≥?(\\d{1,2})組?屬性符石盾").find(s)?.let {
+            // 首消符石數量盾（盾牌圖示 NUM X）：首批消除 X 粒或以上符石
+            Regex("首(?:消|批消除?)≥?(\\d{1,2})(?:粒|顆|個)(?:或以上)?(?:符石)?(?:數量)?盾?").find(s)?.let {
+                r.firstOrbsMin = it.groupValues[1].toInt(); ok("首消≥${r.firstOrbsMin}粒符石")
+            }
+            if (!hit) Regex("(?:首消)?符石數量盾≥?(\\d{1,2})|首消(\\d{1,2})粒").find(s)?.let {
+                r.firstOrbsMin = (it.groupValues[1].ifEmpty { it.groupValues[2] }).toInt(); ok("首消≥${r.firstOrbsMin}粒符石")
+            }
+            if (!hit) Regex("首消≥?(\\d{1,2})組?屬性符石盾").find(s)?.let {
                 r.firstAttrMin = it.groupValues[1].toInt(); ok("首消≥${r.firstAttrMin}組屬性符石（心不算）")
             }
             if (!hit) Regex("首消≥(\\d{1,2})(?:連擊|combo|Combo|COMBO|組)?盾").find(s)?.let {

@@ -1000,6 +1000,9 @@ class AutoTurnService : AccessibilityService() {
         val attrChoices = intArrayOf(0, 4, 5, 6, 7, 8)
         fun attrLabel() = if (edit.firstAttrMin == 0) "首消屬性盾：無" else "首消屬性 ≥${edit.firstAttrMin}"
         val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
+        val orbsChoices = intArrayOf(0, 10, 12, 15, 18, 20, 24)
+        fun orbsLabel() = if (edit.firstOrbsMin == 0) "首消粒數盾：無" else "首消 ≥${edit.firstOrbsMin} 粒"
+        val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsMin = cycle(orbsChoices, edit.firstOrbsMin); b.text = orbsLabel(); refresh() }
         fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
         fun fireLabel() = "火焰路徑：" + if (edit.firePath) "開" else "關"
         val stickyBtn = btn(stickyLabel()) { b -> edit.sticky = !edit.sticky; b.text = stickyLabel(); refresh() }
@@ -1035,7 +1038,8 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(rowOf(brushButtons[0], brushButtons[1], brushButtons[2], brushButtons[3]))
         panel.addView(rowOf(brushButtons[4], brushButtons[5], brushButtons[6]))
         panel.addView(rowOf(comboBtn, firstBtn, exactBtn))
-        panel.addView(rowOf(attrBtn, stickyBtn, fireBtn))
+        panel.addView(rowOf(attrBtn, orbsBtn))
+        panel.addView(rowOf(stickyBtn, fireBtn))
         panel.addView(maskRow("必消(多屬性盾)", { edit.elemMask }, { edit.elemMask = it }))
         panel.addView(maskRow("首消不能消", { edit.antiMask }, { edit.antiMask = it }))
         panel.addView(rowOf(

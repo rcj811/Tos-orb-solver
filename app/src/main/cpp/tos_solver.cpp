@@ -89,7 +89,7 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 }
 
 struct Info {
-    int combos = 0, first = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
+    int combos = 0, first = 0, firstOrbs = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
     int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0;
     bool shieldBroken = false;
     Board after;
@@ -117,6 +117,7 @@ Info resolve(Board b) {
             }
         if (round == 0) {
             in.first = c;
+            in.firstOrbs = orbs;
             in.firstAttr = attr;
             in.firstMask = tm;
             if (RU.shieldN && in.shieldCover == RU.shieldN) {
@@ -172,6 +173,7 @@ bool goalsOk(const Info& in, int pos) {
     if (in.elecLeft) return false;
     if (in.combos < RU.comboMin || in.first < RU.firstMin) return false;
     if (in.firstAttr < RU.firstAttrMin) return false;
+    if (in.firstOrbs < RU.firstOrbsMin) return false;
     if (RU.firstExact >= 0 && in.first != RU.firstExact) return false;
     if (in.firstMask & RU.antiMask) return false;
     if ((in.mask & RU.elemMask) != RU.elemMask) return false;
@@ -213,6 +215,9 @@ void score(State& s) {
     if (RU.firstMin) w += in.first * 400;
     if (RU.firstAttrMin && in.firstAttr < RU.firstAttrMin) w -= (RU.firstAttrMin - in.firstAttr) * 800;
     if (RU.firstAttrMin) w += in.firstAttr * 400;
+    // 首消符石數量盾：每差 1 粒扣分，引導搜尋把同色珠集中在第一批消除
+    if (RU.firstOrbsMin && in.firstOrbs < RU.firstOrbsMin) w -= (RU.firstOrbsMin - in.firstOrbs) * 300;
+    if (RU.firstOrbsMin) w += std::min(in.firstOrbs, RU.firstOrbsMin) * 150;
     if (RU.firstExact >= 0) w -= std::abs(in.first - RU.firstExact) * 1500;
     w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
@@ -383,6 +388,7 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
         out.meta[i] = (m >= 0 && m < 6) ? m : -1;
     }
     if (n >= RULES_INTS) out.firstAttrMin = std::max(0, v[RULES_INTS_V1]);
+    if (n >= RULES_INTS) out.firstOrbsMin = std::max(0, v[RULES_INTS_V1 + 1]);
     return true;
 }
 
@@ -412,6 +418,7 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
     r.found = true;
     r.combos = in.combos;
     r.firstCombos = in.first;
+    r.firstOrbs = in.firstOrbs;
     r.cleared = in.cleared;
     r.goalsMet = best.ok;
     r.start = best.start;

@@ -18,6 +18,13 @@ class SkillParserTest {
     """.trimIndent()
 
     @Test
+    fun parsesFirstOrbsShield() {
+        for (t in listOf("【首消≥15粒符石盾】", "【首消 ≧15 粒符石盾】", "【首批消除15粒或以上符石】", "【符石數量盾≥15】"))
+            assertEquals(t, 15, SkillParser.parse(t).rules.firstOrbsMin)
+        assertEquals(0, SkillParser.parse("【首消≥8組屬性符石盾】").rules.firstOrbsMin)
+    }
+
+    @Test
     fun parsesTheScreenshotBoss() {
         val r = SkillParser.parse(jerseyDevil)
         assertEquals(listOf("水連擊零化", "水之佑律", "首消≥8組屬性符石盾", "終結倒數"), r.skills)
