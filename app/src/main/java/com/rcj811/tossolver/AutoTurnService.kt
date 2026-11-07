@@ -596,7 +596,7 @@ class AutoTurnService : AccessibilityService() {
         val unknown = rec.unknownCount()
         val solveCells = rec.solverCells()
         val pending = NativeSolver.countCombos(solveCells, geo.rows)
-        // 神魔之塔的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
+        // 遊戲的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
         // 改成只看是否靜止；有現成三連時多確認一張截圖，避免抓到消除動畫中間的畫面
         val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells)
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張

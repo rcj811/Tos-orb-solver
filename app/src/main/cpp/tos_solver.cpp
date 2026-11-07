@@ -1,4 +1,4 @@
-// 神魔之塔轉珠求解核心實作（移植自 research/solver3.cpp，已移除驗證無效的選項）
+// 轉珠求解核心實作（移植自 research/solver3.cpp，已移除驗證無效的選項）
 #include "tos_solver.h"
 
 #include <algorithm>

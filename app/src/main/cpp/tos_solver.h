@@ -1,4 +1,4 @@
-// 神魔之塔轉珠求解核心
+// 轉珠求解核心
 // Beam search（AutoDora 式：播種 → 展開 → 結算評分 → 淘汰）＋ beam 多樣性
 // 權重與參數皆經離線驗證，詳見 research/FINAL_CONFIG.md
 #pragma once

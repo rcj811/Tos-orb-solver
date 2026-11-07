@@ -32,7 +32,7 @@ class BoardGeometry(val left: Float, val top: Float, val cell: Float, val rows: 
 class Frame(val width: Int, val height: Int, val pixels: IntArray)
 
 /**
- * 符石狀態：依網路整理的神魔之塔符石種類，按「求解時怎麼處理」分成 5 類。
+ * 符石狀態：依網路整理的符石種類，按「求解時怎麼處理」分成 5 類。
  *  普通：一般珠、種族符石、化血、引爆、弱化、枯藤、泡沫…（看顏色，照常消除）
  *  強化：強化（充能）符石（照常消除）
  *  風化/黏腐：碰到就停止移動（不能碰，可被消除）
