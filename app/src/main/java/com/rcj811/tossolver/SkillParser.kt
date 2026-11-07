@@ -132,14 +132,14 @@ object SkillParser {
                 for (ch in it.groupValues[1]) r.antiMask = r.antiMask or (1 shl COLOR.getValue(ch))
                 ok("首消不能消${it.groupValues[1]}")
             }
-            if (!hit && s.contains("五屬盾")) {
+            if (!hit && Regex("五屬(?:傷害|攻擊|元素)?盾").containsMatchIn(s)) {
                 r.elemMask = 0b11111; ok("同時消除五屬")
             }
-            if (!hit) Regex("([火水木光暗]{2,4})(?:二|三|四)?屬盾").find(s)?.let {
+            if (!hit) Regex("([火水木光暗]{2,4})(?:二|三|四)?屬(?:傷害|攻擊)?盾").find(s)?.let {
                 for (ch in it.groupValues[1]) r.elemMask = r.elemMask or (1 shl COLOR.getValue(ch))
                 ok("同時消除${it.groupValues[1]}")
             }
-            if (!hit && Regex("[二三四]屬盾").containsMatchIn(s)) {
+            if (!hit && Regex("[二三四]屬(?:傷害|攻擊)?盾").containsMatchIn(s)) {
                 manual.add("$s（請按「關」選要同時消除的屬性）"); hit = true
             }
             if (!hit && s.contains("黏腐之軌")) { r.sticky = true; ok("黏腐之軌（路徑不重複）") }

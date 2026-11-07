@@ -18,6 +18,23 @@ class SkillParserTest {
     """.trimIndent()
 
     @Test
+    fun fiveElementDamageShieldWithElectric() {
+        val boss = """
+            渴望成鋼・米基利
+            100   1,000
+            ▼【五屬傷害盾】
+            敵人受到五屬傷害後⇒才可以對敵人造成傷害，否則敵人承受傷害變為1
+            ▼【電擊符石】
+            每回合隨機將2粒符石⇒添加為電擊符石
+        """.trimIndent()
+        val r = SkillParser.parse(boss)
+        assertEquals(0b11111, r.rules.elemMask)        // 火水木光暗都要消
+        assertTrue(r.byRecognition.any { it.contains("電擊") })   // 電擊符石交給符石辨識（觸電：不能碰、必須消）
+        assertTrue(r.unknown.isEmpty())
+        assertEquals(0b101, SkillParser.parse("【火木屬傷害盾】").rules.elemMask)
+    }
+
+    @Test
     fun readsNumShieldNumber() {
         assertEquals(15, SkillParser.parseNum("CD 1\nNUM 15"))
         assertEquals(12, SkillParser.parseNum("CD1\nNum12"))
