@@ -530,7 +530,7 @@ class MainActivity : Activity() {
             return
         }
         board.solution = res
-        val sec = (140 + res.dirs.size * settings.stepMs) / 1000.0
+        val sec = (100 + res.dirs.size * settings.stepMs) / 1000.0
         status.text = "${res.combos} combo（首消 ${res.firstCombos}）・消 ${res.cleared} 顆・${res.dirs.size} 步（約 %.1f 秒）・計算 ${res.ms} ms".format(sec)
         val arrows = StringBuilder()
         for (k in res.dirs.indices) {

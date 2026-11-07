@@ -10,7 +10,9 @@ class AppSettings(context: Context) {
 
     companion object {
         const val SAFETY_MS = 400
-        val STEP_CHOICES = intArrayOf(50, 70, 90, 110, 140, 180)
+        val STEP_CHOICES = intArrayOf(30, 40, 50, 70, 90, 110, 140)
+        /** 最快的穩定速度（每格 40ms ≈ 60fps 下每格 2.4 個畫面，遊戲不會漏格） */
+        const val FASTEST_STEP = 40
         val TIME_CHOICES = intArrayOf(4, 5, 6, 8, 10, 15)
     }
 
@@ -26,7 +28,11 @@ class AppSettings(context: Context) {
 
     /** 每移動一格的時間（毫秒） */
     var stepMs: Int
-        get() = sp.getInt("stepMs", 90)
+        get() {
+            // 一次性改成最快速度（舊版預設 90ms）
+            if (!sp.getBoolean("speedV2", false)) sp.edit().putInt("stepMs", FASTEST_STEP).putBoolean("speedV2", true).apply()
+            return sp.getInt("stepMs", FASTEST_STEP)
+        }
         set(v) = sp.edit().putInt("stepMs", v).apply()
 
     /** 遊戲允許的轉珠秒數，用來限制路徑長度 */
@@ -72,11 +78,11 @@ class AppSettings(context: Context) {
 
     /**
      * 路徑長度上限：把轉珠時間用滿。
-     * 實際拖曳時間 = 按住 80ms + 步數 × 每步 + 放開前 60ms；再預留 SAFETY_MS 給系統手勢延遲。
-     * 例：5 秒、每步 90ms → (5000 − 140 − 400) / 90 = 49 步（舊版固定 35 步）。
+     * 實際拖曳時間 = 按住 60ms + 步數 × 每步 + 放開前 40ms；再預留 SAFETY_MS 給系統手勢延遲。
+     * 例：5 秒、每步 40ms → (5000 − 100 − 400) / 40 = 112 步（舊版固定 35 步）。
      */
     fun maxPathFor(rows: Int): Int {
-        val byTime = (timeLimitSec * 1000 - 140 - SAFETY_MS) / max(1, stepMs)
+        val byTime = (timeLimitSec * 1000 - 100 - SAFETY_MS) / max(1, stepMs)
         return byTime.coerceIn(6, 120)
     }
 

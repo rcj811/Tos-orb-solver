@@ -64,8 +64,8 @@ class AutoTurnService : AccessibilityService() {
             return s.split(':').any { ComponentName.unflattenFromString(it) == me }
         }
 
-        private const val HOLD_START_MS = 80L
-        private const val HOLD_END_MS = 60L
+        private const val HOLD_START_MS = 60L
+        private const val HOLD_END_MS = 40L
         private const val RULE_COOLDOWN_MS = 3000L    // 同一條規則兩次點擊的最短間隔
         private const val MAX_SAME_RULE_TAPS = 6       // 同一條規則連續點這麼多次、中間都沒轉珠 → 視為卡住
         private const val IDLE_STOP_MS = 180_000L      // 3 分鐘沒有任何進展 → 停止
@@ -575,7 +575,8 @@ class AutoTurnService : AccessibilityService() {
         // 神魔之塔的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
         // 改成只看是否靜止；有現成三連時多確認一張截圖，避免抓到消除動畫中間的畫面
         val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells)
-        val needStable = if (pending > 0) 3 else 2
+        // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張
+        val needStable = if (unknown > 0 && pending > 0) 3 else 2
         val alreadyDone = OrbRecognizer.sameMasked(board, lastActed) && now - lastActedAt < 5000
         val waitReason = when {
             unknown > OrbRecognizer.maxUnknown(geo.cells) -> "看不到盤面（$unknown 格認不出來）"
