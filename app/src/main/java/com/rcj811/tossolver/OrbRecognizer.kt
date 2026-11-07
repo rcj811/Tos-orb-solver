@@ -551,7 +551,7 @@ object OrbRecognizer {
     }
 
     /** 自動執行時允許無法辨識的格子比例（這些格子求解時當障礙避開） */
-    const val MAX_UNKNOWN_FRAC = 0.15f
+    const val MAX_UNKNOWN_FRAC = 0.34f   // 認不出的格子在 1/3 以內就照樣轉（當障礙避開）
 
     fun maxUnknown(cells: Int) = max(2, (cells * MAX_UNKNOWN_FRAC).toInt())
 

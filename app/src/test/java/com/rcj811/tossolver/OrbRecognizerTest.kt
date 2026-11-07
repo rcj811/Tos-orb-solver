@@ -152,7 +152,7 @@ class OrbRecognizerTest {
         assertTrue(!OrbRecognizer.sameMasked(a, c))
         val d = IntArray(30) { if (it < 12) -1 else it % 6 }         // 太多格認不出來，不能算同一盤
         assertTrue(!OrbRecognizer.sameMasked(a, d))
-        assertEquals(4, OrbRecognizer.maxUnknown(30))
+        assertEquals(10, OrbRecognizer.maxUnknown(30))
     }
 
     @Test

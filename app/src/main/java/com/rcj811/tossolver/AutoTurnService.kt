@@ -69,7 +69,6 @@ class AutoTurnService : AccessibilityService() {
         private const val RULE_COOLDOWN_MS = 3000L    // 同一條規則兩次點擊的最短間隔
         private const val MAX_SAME_RULE_TAPS = 6       // 同一條規則連續點這麼多次、中間都沒轉珠 → 視為卡住
         private const val IDLE_STOP_MS = 180_000L      // 3 分鐘沒有任何進展 → 停止
-        private const val MAX_UNMET_TURNS = 3          // 套用機制後連續幾回合破不了 → 交給使用者
     }
 
     private lateinit var wm: WindowManager
@@ -465,11 +464,8 @@ class AutoTurnService : AccessibilityService() {
         updateBar()
         Toast.makeText(this, "讀到王的技能：${parse.skills.joinToString("、")}\n${parse.summary()}", Toast.LENGTH_LONG).show()
         if (!auto) return
-        if (parse.manual.isNotEmpty()) {
-            busy = false
-            alertManual("這個王有需要你補充的機制：${parse.manual.joinToString("、")}。補充後再按 ▶")
-            return
-        }
+        // 需要補充的機制：提示，但先照已讀到的條件繼續轉，不停住
+        if (parse.manual.isNotEmpty()) toast("這個王有需要你補充的機制：${parse.manual.joinToString("、")}（可之後按「關」補充），先照已讀到的條件轉")
         next(400)   // 重新截圖：這次就會套用剛記住的條件
     }
 
@@ -501,17 +497,16 @@ class AutoTurnService : AccessibilityService() {
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
             val unknown = rec.unknownCount()
-            if (unknown > geo.cells / 3) {
+            if (unknown > geo.cells / 2) {
                 finishOnce("看不出盤面（$unknown 格無法辨識）。請在戰鬥中珠子靜止時再按，或按「校」重新校正")
                 return@captureClean
             }
             if (unknown > 0) toast("$unknown 格無法辨識，路徑會避開它們")
             val go = {
                 val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(feasColors(rec))
-                if (why != null) {
-                    alertManual("$why，沒有轉珠，需要用角色技能轉珠或手動處理")
-                    finishOnce(null)
-                } else solveAndAct(rec, geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "拖曳被中斷") }
+                // 條件在這盤做不到：照樣轉，用最接近條件的轉法（不要停住不動）
+                if (why != null) toast("$why，照最接近的轉法轉")
+                solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
             }
             // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
             if (forced != null) go() else withNum(frame, geo) { go() }
@@ -659,13 +654,9 @@ class AutoTurnService : AccessibilityService() {
                     // NUM 盾數字每回合會變：每回合都重新讀敵人身上的數字
                     withNum(clean ?: frame, geo) num@{
                     if (!running) { busy = false; updateBar(); return@num }
-                    // 真的過不了：首消條件在這盤數學上不可能（例如首消≥8組屬性且不能消水），立即交給使用者
+                    // 條件在這盤數學上做不到：照樣轉，用最接近條件的轉法（不要停住不動）
                     val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(feasColors(rec))
-                    if (why != null) {
-                        busy = false
-                        alertManual("$why，需要用角色技能轉珠。已停止，請手動處理")
-                        return@num
-                    }
+                    if (why != null) toast("$why，照最接近的轉法轉")
                     solveAndAct(rec, geo) { ok ->
                         if (lastNoMove) {
                             busy = false
@@ -674,11 +665,6 @@ class AutoTurnService : AccessibilityService() {
                         }
                         if (ok) turnsDone++
                         unmetStreak = if (!lastGoalsOk) unmetStreak + 1 else 0
-                        if (unmetStreak >= MAX_UNMET_TURNS) {
-                            busy = false
-                            alertManual("這關連續 $MAX_UNMET_TURNS 回合破不了機制（${stage.summary()}），已停止，請手動處理")
-                            return@solveAndAct
-                        }
                         next(if (ok) 2500 else 1000)
                     }
                     }
@@ -778,14 +764,8 @@ class AutoTurnService : AccessibilityService() {
                     presetStore.save(presets)
                     if (!wasHard && p.hard) toast("這關常常破不了，之後會自動提高搜尋品質")
                 }
-                // 關卡條件必須全部符合（可同時設定多個條件）：找不到就不轉，交給使用者
-                if (!lastGoalsOk) {
-                    lastNoMove = false
-                    stopAuto(null)
-                    alertManual("這盤找不到同時符合「${stage.summary()}」的轉法，沒有轉珠，請手動處理")
-                    done(false)
-                    return@post
-                }
+                // 找不到完全符合條件的轉法：照樣轉最接近的（求解器已把條件差距算進分數），只提示不停住
+                if (!lastGoalsOk) toast("這盤沒找到完全符合「${stage.summary()}」的轉法，照最接近的轉")
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)
                 updateBar("${res.combos}")
