@@ -141,16 +141,6 @@ class AutoTurnService : AccessibilityService() {
         ruleStore = RuleStore(this)
         presetStore = StagePresetStore(this)
         presets = presetStore.load()
-        // 一次性：舊版設定首消 Combo 時會自動打開「首消每組3顆」，把記住的關卡裡這個條件關掉
-        getSharedPreferences("migrate", MODE_PRIVATE).let { sp ->
-            if (!sp.getBoolean("f3off", false)) {
-                if (presets.any { it.rules.first3Only }) {
-                    presets.forEach { it.rules.first3Only = false }
-                    presetStore.save(presets)
-                }
-                sp.edit().putBoolean("f3off", true).apply()
-            }
-        }
         model = colorStore.load()
         stateModel = colorStore.loadStates()
         OrbTypeStore(this).apply()
@@ -1114,10 +1104,13 @@ class AutoTurnService : AccessibilityService() {
         val comboBtn = btn(comboLabel()) { b -> edit.comboMin = cycle(comboChoices, edit.comboMin); b.text = comboLabel(); refresh() }
         lateinit var threeBtn: Button
         val firstBtn = btn(firstLabel()) { b ->
+            val was = edit.firstExact
             edit.firstExact = cycle(firstExactChoices, edit.firstExact)
             edit.firstMin = 0
-            // 「首消每組3顆」是另一個條件，不跟著首消 Combo 自動打開；需要時自己按右邊按鈕
-            b.text = firstLabel(); refresh()
+            // 設定首消 Combo 時預設「每組只能 3 顆」（不能有 4 顆連珠）；可再按右邊按鈕關掉
+            if (was < 0 && edit.firstExact > 0) edit.first3Only = true
+            if (edit.firstExact < 0) edit.first3Only = false
+            b.text = firstLabel(); threeBtn.text = threeLabel(); refresh()
         }
         threeBtn = btn(threeLabel()) { b -> edit.first3Only = !edit.first3Only; b.text = threeLabel(); refresh() }
         val attrChoices = intArrayOf(0, 4, 5, 6, 7, 8)
