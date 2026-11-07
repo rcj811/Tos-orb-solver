@@ -37,6 +37,18 @@ class SkillParserTest {
     }
 
     @Test
+    fun skillGuideExplainsEachSkill() {
+        val r = SkillParser.parse("【五屬傷害盾】【電擊符石】【攻前盾】")
+        val tips = SkillGuide.explain(r.skills)
+        assertEquals(2, tips.size)
+        assertTrue(tips[0].second.meaning.contains("五種屬性"))   // 不會被「五屬盾」搶走
+        assertTrue(tips[1].second.howToBreak.contains("不要碰"))
+        val text = SkillGuide.text(r.skills, r.rules)
+        assertTrue(text.contains("攻前盾"))
+        assertTrue(text.contains("這回合的轉珠條件"))
+    }
+
+    @Test
     fun readsNumShieldNumber() {
         assertEquals(15, SkillParser.parseNum("CD 1\nNUM 15"))
         assertEquals(12, SkillParser.parseNum("CD1\nNum12"))
@@ -93,7 +105,8 @@ class SkillParserTest {
         assertEquals(2, r.manual.size)
         assertEquals(listOf("電擊符石"), r.byRecognition)
         assertEquals(listOf("攻前盾"), r.noEffect)
-        assertTrue(r.rules.isEmpty())
+        assertTrue(r.rules.unsureElec)                   // 電擊符石：認不出的珠當電擊符石
+        assertEquals(0, r.rules.elemMask)
         val generic = SkillParser.parse("【三屬盾】")
         assertEquals(1, generic.manual.size)
     }

@@ -904,8 +904,18 @@ class AutoTurnService : AccessibilityService() {
                 val list = presetStore.load()
                 val (idx, _) = StageMatcher.best(sig, list)
                 val rules = if (idx >= 0) StageRules().apply { copyFrom(list[idx].rules) } else parse.rules
-                toast("已依技能卡配置：${rules.summary()}\n關掉技能視窗後會自動轉珠")
-                waitBoardThenTurn(rules, SystemClock.uptimeMillis(), null)
+                // 顯示每個技能的規則、破解方法與自轉珠的處理方式；按「確定」後關掉技能卡就自動轉
+                val dlg = android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("技能破解說明")
+                    .setMessage(SkillGuide.text(parse.skills, rules))
+                    .setPositiveButton("確定（關掉技能卡後自動轉）") { _, _ ->
+                        toast("請關掉技能視窗，看到盤面後會自動轉這一回合")
+                        waitBoardThenTurn(rules, SystemClock.uptimeMillis(), null)
+                    }
+                    .setNegativeButton("只配置、不轉", null)
+                    .create()
+                dlg.window?.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+                dlg.show()
             }
         }
     }
