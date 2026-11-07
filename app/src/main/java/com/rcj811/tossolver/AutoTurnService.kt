@@ -127,7 +127,7 @@ class AutoTurnService : AccessibilityService() {
     private var rulesTapped = 0
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun toast(msg: String) = Toast.makeText(this, msg, if (msg.length > 24) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
 
     // ---------------- 生命週期 ----------------
 
@@ -507,7 +507,7 @@ class AutoTurnService : AccessibilityService() {
             }
             if (unknown > 0) toast("$unknown 格無法辨識，路徑會避開它們")
             val go = {
-                val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(rec.dissolvableColors())
+                val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(feasColors(rec))
                 if (why != null) {
                     alertManual("$why，沒有轉珠，需要用角色技能轉珠或手動處理")
                     finishOnce(null)
@@ -531,6 +531,17 @@ class AutoTurnService : AccessibilityService() {
             updateBar()
             then()
         }
+    }
+
+    /** 判斷條件可不可能時用的顏色：標了必消的珠用辨識出的顏色、標了不消的當不能消 */
+    private fun feasColors(rec: Recognition): IntArray {
+        val c = rec.dissolvableColors()
+        for (i in c.indices) {
+            if (i >= StageRules.MAX_CELLS) break
+            if (stage.cellFlags[i] and StageRules.MUST_ORB != 0) c[i] = rec.colors[i]
+            if (stage.cellFlags[i] and StageRules.NO_ORB != 0) c[i] = -1
+        }
+        return c
     }
 
     private fun finishOnce(msg: String?) {
@@ -649,7 +660,7 @@ class AutoTurnService : AccessibilityService() {
                     withNum(clean ?: frame, geo) num@{
                     if (!running) { busy = false; updateBar(); return@num }
                     // 真的過不了：首消條件在這盤數學上不可能（例如首消≥8組屬性且不能消水），立即交給使用者
-                    val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(rec.dissolvableColors())
+                    val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(feasColors(rec))
                     if (why != null) {
                         busy = false
                         alertManual("$why，需要用角色技能轉珠。已停止，請手動處理")
@@ -1006,7 +1017,7 @@ class AutoTurnService : AccessibilityService() {
         }
 
         // 筆刷：點盤面格子時要設定的機制
-        val brushNames = arrayOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)", "裂痕", "起點(綠)", "終點(紅)", "必消(點珠)", "不消(點珠)")
+        val brushNames = arrayOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)", "裂痕", "起點(綠)", "終點(紅)", "必消(點珠)", "不消(點珠)", "不碰(點珠)")
         val brushButtons = ArrayList<Button>()
         var brush = 0
         fun paintBrushes() {
@@ -1024,6 +1035,7 @@ class AutoTurnService : AccessibilityService() {
                 5 -> edit.green = if (edit.green == i) -1 else i
                 6 -> edit.red = if (edit.red == i) -1 else i
                 7 -> { edit.toggle(i, StageRules.MUST_ORB); if (edit.cellFlags[i] and StageRules.MUST_ORB != 0) edit.cellFlags[i] = edit.cellFlags[i] and StageRules.NO_ORB.inv() }
+                9 -> edit.toggle(i, StageRules.NOTOUCH_ORB)
                 8 -> { edit.toggle(i, StageRules.NO_ORB); if (edit.cellFlags[i] and StageRules.NO_ORB != 0) edit.cellFlags[i] = edit.cellFlags[i] and StageRules.MUST_ORB.inv() }
             }
             refresh()
@@ -1089,7 +1101,7 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(summary)
         panel.addView(rowOf(brushButtons[0], brushButtons[1], brushButtons[2], brushButtons[3]))
         panel.addView(rowOf(brushButtons[4], brushButtons[5], brushButtons[6]))
-        panel.addView(rowOf(brushButtons[7], brushButtons[8]))
+        panel.addView(rowOf(brushButtons[7], brushButtons[8], brushButtons[9]))
         panel.addView(rowOf(comboBtn, firstBtn, threeBtn))
         panel.addView(rowOf(attrBtn, orbsBtn))
         panel.addView(rowOf(stickyBtn, fireBtn))

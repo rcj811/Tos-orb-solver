@@ -83,6 +83,19 @@ class StageRulesTest {
     }
 
     @Test
+    fun mustMarkOverridesUnsureAndNoTouch() {
+        val r = StageRules().apply { toggle(0, StageRules.MUST_ORB); toggle(1, StageRules.NOTOUCH_ORB); toggle(2, StageRules.MUST_ORB) }
+        val cells = intArrayOf(3 or 0x60, 2, 1 or 0x40) + IntArray(27) { it % 6 }
+        r.applyOrbMarks(cells)
+        assertEquals(3 or 0x40 or 0x10, cells[0])   // 沒把握的珠標必消：拿掉不能消、保留不能碰
+        assertEquals(2 or 0x40, cells[1])           // 不碰(點珠)
+        assertEquals(1 or 0x40 or 0x10, cells[2])   // 觸電類：不碰但要消
+        assertEquals(0, r.toInts()[13])
+        assertTrue(r.withoutOrbMarks().isEmpty())
+        assertTrue(r.summary().contains("不碰珠 1 顆"))
+    }
+
+    @Test
     fun tappedOrbMarks() {
         val r = StageRules().apply { toggle(0, StageRules.MUST_ORB); toggle(5, StageRules.NO_ORB); firstOrbsExact = 12 }
         val cells = IntArray(30) { it % 6 }

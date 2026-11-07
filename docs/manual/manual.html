@@ -117,7 +117,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 <header>
   <h1>自轉珠 操作手冊</h1>
   <p class="lead">自動轉珠：浮動工作列、自動判斷盤面與關卡條件、越玩越準。</p>
-  <span class="ver">對應版本：build-37（v0.1.37）以上</span>
+  <span class="ver">對應版本：build-41（v0.1.41）以上</span>
   <nav class="toc" aria-label="目錄">
     <a href="#start">第一次使用</a><a href="#bar">工作列</a><a href="#auto">自動執行</a><a href="#calib">校：校正盤面</a>
     <a href="#stage">關：關卡條件</a><a href="#types">符石類別</a><a href="#rules">＋：點擊規則</a><a href="#app">App 設定</a><a href="#faq">常見問題</a>
@@ -242,8 +242,8 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
     <div class="prow" style="grid-template-columns:repeat(3,1fr)">
       <div class="pbtn">裂痕</div><div class="pbtn">起點(綠)</div><div class="pbtn">終點(紅)</div>
     </div>
-    <div class="prow" style="grid-template-columns:repeat(2,1fr)">
-      <div class="pbtn">必消(點珠)</div><div class="pbtn">不消(點珠)</div>
+    <div class="prow" style="grid-template-columns:repeat(3,1fr)">
+      <div class="pbtn">必消(點珠)</div><div class="pbtn">不消(點珠)</div><div class="pbtn">不碰(點珠)</div>
     </div>
     <div class="prow" style="grid-template-columns:repeat(3,1fr)">
       <div class="pbtn">Combo盾：無</div><div class="pbtn">首消Combo：無</div><div class="pbtn">首消每組3顆：關</div>
@@ -269,7 +269,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
     <span><i class="sw" style="background:#000;border-radius:50%"></i>黑洞（不能停）</span>
     <span><i class="sw" style="color:#ddd;display:grid;place-items:center">✕</i>裂痕</span>
     <span><i class="dot" style="background:#00c853;width:20px;height:20px;font-size:10px">起</i><i class="dot" style="background:#d50000;width:20px;height:20px;font-size:10px">終</i>起點／終點</span>
-    <span><i class="dot" style="background:#2962ff;width:20px;height:20px;font-size:10px">必</i><i class="dot" style="background:#616161;width:20px;height:20px;font-size:10px">禁</i>必消／不消的珠子</span>
+    <span><i class="dot" style="background:#2962ff;width:20px;height:20px;font-size:10px">必</i><i class="dot" style="background:#616161;width:20px;height:20px;font-size:10px">禁</i><i class="dot" style="background:#e65100;width:20px;height:20px;font-size:10px">避</i>必消／不消／不碰的珠子</span>
   </div>
   <div class="tipbox" aria-live="polite"><span class="hint0">點筆刷、盾按鈕、顏色或盤面上的標記，這裡會顯示說明。</span></div>
   <figcaption>圖 3　關卡面板（上）與盤面標記（下）</figcaption>
@@ -285,8 +285,9 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
   <tr><td>黑洞(不停)</td><td>最後一步不能停在這格。</td><td>記住</td></tr>
   <tr><td>裂痕</td><td>回合結束時停在這個<b>位置</b>的珠子不能被消除。可以經過，跟珠子種類無關。</td><td>記住</td></tr>
   <tr><td>起點(綠)／終點(紅)</td><td>綠紅漩渦：一定要從綠格出發、停在紅格。</td><td>記住</td></tr>
-  <tr><td>必消(點珠)</td><td>點到的<b>這顆珠</b>這回合一定要消掉，顯示藍色「必」。</td><td><b>只用這一回合</b></td></tr>
+  <tr><td>必消(點珠)</td><td>點到的<b>這顆珠</b>這回合一定要消掉，顯示藍色「必」。就算程式沒把握它的顏色，也會照最可能的顏色去消；它本來不能碰（例如觸電）的話，就不碰它、靠旁邊湊三連消掉。</td><td><b>只用這一回合</b></td></tr>
   <tr><td>不消(點珠)</td><td>點到的<b>這顆珠</b>這回合不能消，顯示灰色「禁」。</td><td><b>只用這一回合</b></td></tr>
+  <tr><td>不碰(點珠)</td><td>點到的<b>這顆珠</b>不能碰：路徑不能經過、不能從它開始，顯示橘色「避」。它還是可以被旁邊的珠子湊成三連消掉。</td><td><b>只用這一回合</b></td></tr>
 </table></div>
 
 <h3>盾與條件按鈕</h3>
@@ -432,6 +433,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
     if (i === 29) d.innerHTML += '<i class="circ" style="background:#d50000">終</i>';
     if (i === 14) d.innerHTML += '<i class="circ" style="background:#2962ff;right:0;top:0">必</i>';
     if (i === 16) d.innerHTML += '<i class="circ" style="background:#616161;right:0;top:0">禁</i>';
+    if (i === 26) d.innerHTML += '<i class="circ" style="background:#e65100;left:0;top:0">避</i>';
     b2.appendChild(d);
   });
 
@@ -460,6 +462,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
     "終點": "<b>終點(紅)筆刷</b>：紅漩渦，最後一步一定要停在這格。",
     "必消(點珠)": "<b>必消(點珠)筆刷</b>：點到的這顆珠這回合一定要消掉，顯示藍色「必」。只用這一回合，不會記住。",
     "不消(點珠)": "<b>不消(點珠)筆刷</b>：點到的這顆珠這回合不能消，顯示灰色「禁」。只用這一回合，不會記住。",
+    "不碰(點珠)": "<b>不碰(點珠)筆刷</b>：點到的這顆珠不能碰，路徑不能經過、不能從它開始，顯示橘色「避」。它還是可以被湊成三連消掉。只用這一回合。",
     "Combo盾": "<b>Combo盾</b>：整回合（含疊珠）至少 X combo。每按一下：無 → 5 → 6 → … → 12。",
     "首消Combo": "<b>首消Combo</b>：第一批「剛好」X combo。每按一下：無 → 1 → 2 → … → 10。設定時會自動打開「首消每組3顆」。",
     "首消每組3顆": "<b>首消每組3顆</b>：第一批每一組都只能剛好 3 顆，不能有 4 顆以上連成一組。允許 4 顆連珠的關卡可以關掉。",
@@ -526,6 +529,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
     else if (i === 29) d.dataset.tip = TIPS["終點"];
     else if (i === 14) d.dataset.tip = TIPS["必消(點珠)"];
     else if (i === 16) d.dataset.tip = TIPS["不消(點珠)"];
+    else if (i === 26) d.dataset.tip = TIPS["不碰(點珠)"];
     else if (m) d.dataset.tip = MK[m];
     else d.dataset.tip = "<b>一般格子</b>：先選一支筆刷，再點格子就會標上；再點一次取消。";
   });

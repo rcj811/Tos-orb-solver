@@ -19,7 +19,8 @@ class StageRules {
         const val BLACK_HOLE = 16   // 黑洞（最後一步不能停在這）
         const val MUST_ORB = 32     // 自點必消：這一格目前的珠子這回合一定要消掉（只用在這一盤）
         const val NO_ORB = 64       // 自點不消：這一格目前的珠子這回合不能消（只用在這一盤）
-        const val ORB_MARKS = MUST_ORB or NO_ORB
+        const val NOTOUCH_ORB = 128 // 自點不碰：這一格目前的珠子不能碰（路徑不能經過、不能當起點；只用在這一盤）
+        const val ORB_MARKS = MUST_ORB or NO_ORB or NOTOUCH_ORB
 
         val ORB_SHORT = arrayOf("火", "水", "木", "光", "暗", "心")
     }
@@ -53,8 +54,10 @@ class StageRules {
     fun applyOrbMarks(cells: IntArray) {
         for (i in cells.indices) {
             if (i >= MAX_CELLS) break
-            if (cellFlags[i] and MUST_ORB != 0) cells[i] = cells[i] or 0x10
+            // 必消：相信使用者的標記，就算顏色沒把握也照最可能的顏色消（拿掉「不能消除」）；原本不能碰的仍然不碰
+            if (cellFlags[i] and MUST_ORB != 0) cells[i] = (cells[i] and 0x20.inv()) or 0x10
             if (cellFlags[i] and NO_ORB != 0) cells[i] = cells[i] or 0x20
+            if (cellFlags[i] and NOTOUCH_ORB != 0) cells[i] = cells[i] or 0x40
         }
     }
 
@@ -109,6 +112,7 @@ class StageRules {
         if (count(BLACK_HOLE) > 0) parts.add("黑洞 ${count(BLACK_HOLE)}")
         if (count(MUST_ORB) > 0) parts.add("必消珠 ${count(MUST_ORB)} 顆")
         if (count(NO_ORB) > 0) parts.add("不消珠 ${count(NO_ORB)} 顆")
+        if (count(NOTOUCH_ORB) > 0) parts.add("不碰珠 ${count(NOTOUCH_ORB)} 顆")
         if (count(CRACK) > 0) parts.add("裂痕 ${count(CRACK)}")
         if (green >= 0 || red >= 0) parts.add("漩渦")
         if (sticky) parts.add("黏手路徑")

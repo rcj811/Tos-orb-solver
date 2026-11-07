@@ -262,6 +262,11 @@ class StageRulesView(context: Context) : View(context) {
                 canvas.drawCircle(x + s * 0.78f, y + s * 0.22f, s * 0.18f, fill)
                 canvas.drawText("禁", x + s * 0.78f, y + s * 0.32f, text)
             }
+            if (f and StageRules.NOTOUCH_ORB != 0) {
+                fill.color = Color.parseColor("#E65100")
+                canvas.drawCircle(x + s * 0.22f, y + s * 0.22f, s * 0.18f, fill)
+                canvas.drawText("避", x + s * 0.22f, y + s * 0.32f, text)
+            }
             if (i == rules.green) {
                 fill.color = Color.parseColor("#00C853")
                 canvas.drawCircle(x + s / 2, y + s / 2, s * 0.25f, fill)
