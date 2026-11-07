@@ -145,7 +145,11 @@ object SkillParser {
             if (!hit && s.contains("黏腐之軌")) { r.sticky = true; ok("黏腐之軌（路徑不重複）") }
             if (!hit && s.contains("燃燒之軌")) { r.firePath = true; ok("燃燒之軌（不重踩）") }
             if (!hit) MANUAL.firstOrNull { s.contains(it.first) }?.let { manual.add(it.second); hit = true }
-            if (!hit && BY_RECOGNITION.any { s.contains(it) }) { byRec.add(s); hit = true }
+            if (!hit && BY_RECOGNITION.any { s.contains(it) }) {
+                byRec.add(s); hit = true
+                // 電擊／觸電符石：被閃電特效蓋住、認不出來的珠，當成電擊符石（不碰、必須消）
+                if (s.contains("電擊") || s.contains("觸電")) r.unsureElec = true
+            }
             if (!hit && NO_EFFECT.any { s.contains(it) }) { noEff.add(s); hit = true }
             if (!hit) unknown.add(s)
         }

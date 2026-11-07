@@ -546,6 +546,7 @@ class AutoTurnService : AccessibilityService() {
         for (i in c.indices) {
             if (i >= StageRules.MAX_CELLS) break
             if (stage.cellFlags[i] and StageRules.MUST_ORB != 0) c[i] = rec.colors[i]
+            if (stage.unsureElec && rec.isUnknown(i)) c[i] = rec.colors[i]
             if (stage.cellFlags[i] and StageRules.NO_ORB != 0) c[i] = -1
         }
         return c
@@ -743,6 +744,8 @@ class AutoTurnService : AccessibilityService() {
     private fun solveAndAct(rec: Recognition, geo: BoardGeometry, done: (Boolean) -> Unit) {
         // 符石狀態轉成求解旗標（風化/黏腐、觸電、冰封/石化）；無法辨識的格子當冰封：不碰、也不算消除
         val cells = rec.solverCells()
+        // 這關有電擊符石：認不出的珠多半是被閃電特效蓋住的電擊符石 → 用最可能的顏色，不碰、必須消
+        if (stage.unsureElec) for (i in cells.indices) if (rec.isUnknown(i)) cells[i] = rec.colors[i] or 0x50
         stage.applyOrbMarks(cells)   // 自點必消 / 不消（只有按「完成」轉這一盤時才會有）
         val presetIdx = activePreset
         val hardStage = presetIdx in presets.indices && presets[presetIdx].hard
@@ -886,9 +889,9 @@ class AutoTurnService : AccessibilityService() {
             busy = false
             updateBar()
             if (frame == null) { toast("截圖失敗"); return@captureClean }
-            val geo = if (settings.hasGeometry) settings.geometry else null
-            val sig = geo?.let { StageMatcher.signature(frame, it) }
-            if (sig == null) { showRecordOverlay(frame); return@captureClean }
+            if (!settings.hasGeometry) { toast("請先按「校」校正盤面位置"); return@captureClean }
+            val sig = StageMatcher.signature(frame, settings.geometry)
+            if (sig == null) { toast("盤面上方空間不足，無法記住這一關"); return@captureClean }
             // 畫面上有王的技能卡（長按王打開）：讀卡片、自動配置過關條件，關掉卡片後自動轉這一回合
             busy = true
             updateBar("…")
@@ -896,7 +899,7 @@ class AutoTurnService : AccessibilityService() {
                 busy = false
                 updateBar()
                 val parse = SkillParser.parse(text ?: "")
-                if (!parse.found) { showRecordOverlay(frame); return@read }
+                if (!parse.found) { toast("沒讀到王的技能卡。請先在遊戲裡長按王打開技能說明，再按「＋」"); return@read }
                 onBossRead(sig, parse, auto = false)
                 val list = presetStore.load()
                 val (idx, _) = StageMatcher.best(sig, list)

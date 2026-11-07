@@ -31,6 +31,8 @@ class SkillParserTest {
         assertEquals(0b11111, r.rules.elemMask)        // 火水木光暗都要消
         assertTrue(r.byRecognition.any { it.contains("電擊") })   // 電擊符石交給符石辨識（觸電：不能碰、必須消）
         assertTrue(r.unknown.isEmpty())
+        assertTrue(r.rules.unsureElec)                    // 認不出的珠當電擊符石
+        assertTrue(r.rules.summary().contains("電擊符石"))
         assertEquals(0b101, SkillParser.parse("【火木屬傷害盾】").rules.elemMask)
     }
 
