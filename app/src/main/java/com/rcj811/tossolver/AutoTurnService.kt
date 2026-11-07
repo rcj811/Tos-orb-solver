@@ -1031,15 +1031,24 @@ class AutoTurnService : AccessibilityService() {
 
         // 盾 / 條件
         val comboChoices = intArrayOf(0, 5, 6, 7, 8, 9, 10, 12)
-        val firstChoices = intArrayOf(0, 3, 4, 5, 6, 7)
-        val exactChoices = intArrayOf(-1, 1, 2, 3, 4, 5, 6)
         fun cycle(a: IntArray, cur: Int): Int { val i = a.indexOf(cur); return a[if (i < 0) 0 else (i + 1) % a.size] }
         fun comboLabel() = if (edit.comboMin == 0) "Combo盾：無" else "Combo盾 ≥${edit.comboMin}"
-        fun firstLabel() = if (edit.firstMin == 0) "首消Combo盾：無" else "首消Combo ≥${edit.firstMin}"
-        fun exactLabel() = if (edit.firstExact < 0) "固定首消：無" else "首消剛好 ${edit.firstExact}"
+        // 首消 Combo：剛好設定的數量（取代舊的「≥」與「固定首消」兩顆按鈕）
+        val firstExactChoices = intArrayOf(-1) + (1..10).toList().toIntArray()
+        fun firstLabel() = if (edit.firstExact < 0) "首消Combo：無" else "首消Combo：剛好 ${edit.firstExact}"
+        fun threeLabel() = "首消每組3顆：" + if (edit.first3Only) "開" else "關"
         val comboBtn = btn(comboLabel()) { b -> edit.comboMin = cycle(comboChoices, edit.comboMin); b.text = comboLabel(); refresh() }
-        val firstBtn = btn(firstLabel()) { b -> edit.firstMin = cycle(firstChoices, edit.firstMin); b.text = firstLabel(); refresh() }
-        val exactBtn = btn(exactLabel()) { b -> edit.firstExact = cycle(exactChoices, edit.firstExact); b.text = exactLabel(); refresh() }
+        lateinit var threeBtn: Button
+        val firstBtn = btn(firstLabel()) { b ->
+            val was = edit.firstExact
+            edit.firstExact = cycle(firstExactChoices, edit.firstExact)
+            edit.firstMin = 0
+            // 設定首消 Combo 時預設「每組只能 3 顆」（不能有 4 顆連珠）；可再按右邊按鈕關掉
+            if (was < 0 && edit.firstExact > 0) edit.first3Only = true
+            if (edit.firstExact < 0) edit.first3Only = false
+            b.text = firstLabel(); threeBtn.text = threeLabel(); refresh()
+        }
+        threeBtn = btn(threeLabel()) { b -> edit.first3Only = !edit.first3Only; b.text = threeLabel(); refresh() }
         val attrChoices = intArrayOf(0, 4, 5, 6, 7, 8)
         fun attrLabel() = if (edit.firstAttrMin == 0) "首消屬性盾：無" else "首消屬性 ≥${edit.firstAttrMin}"
         val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
@@ -1081,7 +1090,7 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(rowOf(brushButtons[0], brushButtons[1], brushButtons[2], brushButtons[3]))
         panel.addView(rowOf(brushButtons[4], brushButtons[5], brushButtons[6]))
         panel.addView(rowOf(brushButtons[7], brushButtons[8]))
-        panel.addView(rowOf(comboBtn, firstBtn, exactBtn))
+        panel.addView(rowOf(comboBtn, firstBtn, threeBtn))
         panel.addView(rowOf(attrBtn, orbsBtn))
         panel.addView(rowOf(stickyBtn, fireBtn))
         panel.addView(maskRow("必消(這回合要消)", { edit.elemMask }, { edit.elemMask = it }))

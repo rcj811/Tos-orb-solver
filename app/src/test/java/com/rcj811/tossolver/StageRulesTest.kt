@@ -99,6 +99,17 @@ class StageRulesTest {
     }
 
     @Test
+    fun firstThreeOnly() {
+        val r = StageRules().apply { firstExact = 4; first3Only = true }
+        assertEquals(1, r.toInts()[110]); assertEquals(4, r.toInts()[3])
+        assertTrue(StageRules().apply { deserialize(r.serialize()) }.first3Only)
+        assertTrue(r.summary().contains("每組 3 顆"))
+        // 4 combo × 3 顆 = 12 粒，跟 NUM 15 矛盾
+        assertTrue(StageRules().apply { firstExact = 4; first3Only = true; firstOrbsExact = 15 }.firstBatchImpossible(IntArray(30) { it % 6 }) != null)
+        assertEquals(null, StageRules().apply { firstExact = 4; first3Only = true; firstOrbsExact = 12 }.firstBatchImpossible(IntArray(30) { it % 6 }))
+    }
+
+    @Test
     fun toggleTwiceClears() {
         val r = StageRules()
         r.toggle(10, StageRules.SHIELD)

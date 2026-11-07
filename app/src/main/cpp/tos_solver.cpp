@@ -174,6 +174,7 @@ bool goalsOk(const Info& in, int pos) {
     if (in.combos < RU.comboMin || in.first < RU.firstMin) return false;
     if (in.firstAttr < RU.firstAttrMin) return false;
     if (RU.firstOrbsExact && in.firstOrbs != RU.firstOrbsExact) return false;
+    if (RU.first3Only && in.firstOrbs != 3 * in.first) return false;   // 每組都 3 顆 ⇔ 總數 = 3 × 組數
     if (RU.firstExact >= 0 && in.first != RU.firstExact) return false;
     if (in.firstMask & RU.antiMask) return false;
     if ((in.mask & RU.elemMask) != RU.elemMask) return false;
@@ -223,6 +224,7 @@ void score(State& s) {
         if (d == 0) w += 1500;
     }
     if (RU.firstExact >= 0) w -= std::abs(in.first - RU.firstExact) * 1500;
+    if (RU.first3Only) w -= (in.firstOrbs - 3 * in.first) * 600;
     w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
     if (RU.shieldN)
@@ -393,6 +395,7 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
     }
     if (n >= RULES_INTS) out.firstAttrMin = std::max(0, v[RULES_INTS_V1]);
     if (n >= RULES_INTS) out.firstOrbsExact = std::max(0, v[RULES_INTS_V1 + 1]);
+    if (n >= RULES_INTS) out.first3Only = v[RULES_INTS_V1 + 2] != 0;
     return true;
 }
 

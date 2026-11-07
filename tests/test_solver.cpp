@@ -273,6 +273,28 @@ int main() {
         CHECK(ok >= n * 0.9, "NUM 15：隨機盤大多能破");
     }
 
+    {
+        // 首消剛好 X Combo、每組只能 3 顆（不能有 4 顆連珠）
+        int v[RULES_INTS] = {0}; v[0] = 1; v[3] = 5; v[8] = 6; v[10] = -1; v[11] = -1;
+        for (int i = 0; i < MAX_CELLS; i++) v[12 + MAX_CELLS + i] = -1;
+        v[RULES_INTS_V1 + 2] = 1;
+        Rules r3; rulesFromInts(v, RULES_INTS, r3);
+        CHECK(r3.first3Only && r3.firstExact == 5, "首消每組 3 顆可解碼");
+        std::mt19937 rq(11); int ok = 0, n = 30;
+        for (int k = 0; k < n; k++) {
+            uint8_t bb[MAX_CELLS]; for (int i = 0; i < 30; i++) bb[i] = rq() % 6;
+            Config c3; c3.maxPath = 60; Solution s = solve(bb, c3, r3);
+            if (s.goalsMet && s.firstCombos == 5 && s.firstOrbs == 15) ok++;
+        }
+        std::printf("首消剛好 5 Combo、每組 3 顆：%d / %d\n", ok, n);
+        CHECK(ok >= n * 0.9, "首消剛好 5 Combo、每組 3 顆");
+        uint8_t four[MAX_CELLS]; parse("000012" "123450" "234501" "345012" "450123", four, 30);
+        Config c4; Rules one; int w[RULES_INTS] = {0}; w[0] = 1; w[3] = 1; w[8] = 6; w[10] = -1; w[11] = -1;
+        for (int i = 0; i < MAX_CELLS; i++) w[12 + MAX_CELLS + i] = -1;
+        w[RULES_INTS_V1 + 2] = 1; rulesFromInts(w, RULES_INTS, one);
+        CHECK(!replay(four, 5, {1}, c4, one).goalsMet, "4 顆連珠不算達成");
+    }
+
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);
     return failures ? 1 : 0;
 }

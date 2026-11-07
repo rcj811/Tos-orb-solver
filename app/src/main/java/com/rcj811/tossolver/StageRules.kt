@@ -28,6 +28,7 @@ class StageRules {
     var firstMin = 0       // 首消 Combo 盾（≥X）
     var firstExact = -1    // 固定首消 X Combo（-1 = 無）
     var firstAttrMin = 0   // 首消 ≥X 組屬性符石盾（不含心珠）
+    var first3Only = false   // 首消每組只能剛好 3 顆（不能有 4 顆連珠）
     var firstOrbsExact = 0   // 首消符石數量盾（NUM X）：首批消除「剛好」X 粒（疊珠不算）
     var antiMask = 0       // 首消不能消的珠種（bit = 珠種）
     var elemMask = 0       // 本回合必須消的珠種（多屬性盾）
@@ -37,11 +38,11 @@ class StageRules {
     var red = -1           // 紅漩渦：終點
     val cellFlags = IntArray(MAX_CELLS)
 
-    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && firstOrbsExact == 0 && antiMask == 0 && elemMask == 0 &&
+    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && firstOrbsExact == 0 && !first3Only && antiMask == 0 && elemMask == 0 &&
         !sticky && !firePath && green < 0 && red < 0 && cellFlags.all { it == 0 }
 
     fun clear() {
-        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; firstOrbsExact = 0; antiMask = 0; elemMask = 0
+        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; firstOrbsExact = 0; first3Only = false; antiMask = 0; elemMask = 0
         sticky = false; firePath = false; green = -1; red = -1
         cellFlags.fill(0)
     }
@@ -85,6 +86,7 @@ class StageRules {
         }
         v[INTS_V1] = firstAttrMin
         v[INTS_V1 + 1] = firstOrbsExact
+        v[INTS_V1 + 2] = if (first3Only) 1 else 0
         return v
     }
 
@@ -97,6 +99,7 @@ class StageRules {
         if (comboMin > 0) parts.add("Combo≥$comboMin")
         if (firstMin > 0) parts.add("首消Combo≥$firstMin")
         if (firstExact >= 0) parts.add("首消剛好 $firstExact Combo")
+        if (first3Only) parts.add("首消每組 3 顆")
         if (firstAttrMin > 0) parts.add("首消屬性≥$firstAttrMin")
         if (firstOrbsExact > 0) parts.add("NUM盾 首消剛好${firstOrbsExact}粒")
         if (elemMask != 0) parts.add("必消 ${maskText(elemMask)}")
@@ -114,7 +117,7 @@ class StageRules {
     }
 
     fun copyFrom(o: StageRules) {
-        comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact; firstAttrMin = o.firstAttrMin; firstOrbsExact = o.firstOrbsExact
+        comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact; firstAttrMin = o.firstAttrMin; firstOrbsExact = o.firstOrbsExact; first3Only = o.first3Only
         antiMask = o.antiMask; elemMask = o.elemMask; sticky = o.sticky; firePath = o.firePath
         green = o.green; red = o.red
         o.cellFlags.copyInto(cellFlags)
@@ -125,6 +128,7 @@ class StageRules {
         if (o.comboMin > 0) comboMin = o.comboMin
         if (o.firstMin > 0) firstMin = o.firstMin
         if (o.firstExact >= 0) firstExact = o.firstExact
+        if (o.first3Only) first3Only = true
         if (o.firstAttrMin > 0) firstAttrMin = o.firstAttrMin
         if (o.firstOrbsExact > 0) firstOrbsExact = o.firstOrbsExact
         antiMask = antiMask or o.antiMask
@@ -180,6 +184,8 @@ class StageRules {
         }
         if (firstMin > 0 && ubAll < firstMin)
             return "首消要 ≥$firstMin combo$ban，這盤最多只能 $ubAll combo"
+        if (first3Only && firstExact > 0 && firstOrbsExact > 0 && firstOrbsExact != firstExact * 3)
+            return "首消剛好 $firstExact Combo、每組 3 顆＝${firstExact * 3} 粒，跟 NUM 盾 $firstOrbsExact 粒互相矛盾"
         if (firstExact > 0 && ubAll < firstExact)
             return "首消要剛好 $firstExact combo$ban，這盤最多只能 $ubAll combo"
         return null
@@ -187,7 +193,7 @@ class StageRules {
 
     /** 簡單文字格式（存檔用）：key=value;... */
     fun serialize(): String = listOf(
-        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "fo=$firstOrbsExact", "a=$antiMask", "e=$elemMask",
+        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "fo=$firstOrbsExact", "f3=${if (first3Only) 1 else 0}", "a=$antiMask", "e=$elemMask",
         "s=${if (sticky) 1 else 0}", "p=${if (firePath) 1 else 0}", "g=$green", "r=$red",
         "cells=" + cellFlags.joinToString(","),
     ).joinToString(";")
@@ -203,6 +209,7 @@ class StageRules {
                 "c" -> comboMin = v.toIntOrNull() ?: 0
                 "f" -> firstMin = v.toIntOrNull() ?: 0
                 "x" -> firstExact = v.toIntOrNull() ?: -1
+                "f3" -> first3Only = v == "1"
                 "fa" -> firstAttrMin = v.toIntOrNull() ?: 0
                 "fo" -> firstOrbsExact = v.toIntOrNull() ?: 0
                 "a" -> antiMask = v.toIntOrNull() ?: 0
