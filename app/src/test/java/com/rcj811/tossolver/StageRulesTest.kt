@@ -57,13 +57,17 @@ class StageRulesTest {
 
     @Test
     fun firstOrbsShield() {
-        val r = StageRules().apply { firstOrbsMin = 15 }
+        val r = StageRules().apply { firstOrbsExact = 15 }
         assertTrue(!r.isEmpty())
         assertEquals(15, r.toInts()[109])
-        assertEquals(15, StageRules().apply { deserialize(r.serialize()) }.firstOrbsMin)
+        assertEquals(15, StageRules().apply { deserialize(r.serialize()) }.firstOrbsExact)
         assertEquals(null, r.firstBatchImpossible(IntArray(30) { it % 6 }))
+        // 每色 5 顆：14 = 5+5+4 湊得出來
+        assertEquals(null, StageRules().apply { firstOrbsExact = 14 }.firstBatchImpossible(IntArray(30) { it % 6 }))
+        // 4 色各 3 顆（只能 0/3/6/9/12）→ 剛好 15 粒不可能
+        assertTrue(StageRules().apply { firstOrbsExact = 10 }.firstBatchImpossible(IntArray(30) { if (it < 12) it % 4 else -1 }) != null)
         // 能消的只有 12 顆 → 不可能 15 粒
-        assertTrue(StageRules().apply { firstOrbsMin = 15 }.firstBatchImpossible(IntArray(30) { if (it < 12) it % 4 else -1 }) != null)
+        assertTrue(StageRules().apply { firstOrbsExact = 15 }.firstBatchImpossible(IntArray(30) { if (it < 12) it % 4 else -1 }) != null)
     }
 
     @Test

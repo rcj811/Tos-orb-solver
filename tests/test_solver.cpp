@@ -252,21 +252,22 @@ int main() {
     }
 
     {
-        // 首消符石數量盾（NUM 15）：首批消除 ≥15 粒
+        // 首消符石數量盾（NUM 15）：首批消除剛好 15 粒
         uint8_t bn[MAX_CELLS]; parse("131541" "003250" "434225" "312303" "524140", bn, 30);
         int v[RULES_INTS] = {0}; v[0] = 1; v[3] = -1; v[8] = 6; v[10] = -1; v[11] = -1;
         for (int i = 0; i < MAX_CELLS; i++) v[12 + MAX_CELLS + i] = -1;
         v[RULES_INTS_V1 + 1] = 15;
         Rules rn; rulesFromInts(v, RULES_INTS, rn);
-        CHECK(rn.firstOrbsMin == 15, "NUM 盾可解碼");
+        CHECK(rn.firstOrbsExact == 15, "NUM 盾可解碼");
         Config cn; cn.maxPath = 60;
         Solution plain = solve(bn, cn), sn = solve(bn, cn, rn);
         std::printf("NUM15：一般解首消 %d 粒；破盾解首消 %d 粒、%d combo、達成 %d\n", plain.firstOrbs, sn.firstOrbs, sn.combos, sn.goalsMet);
-        CHECK(sn.goalsMet && sn.firstOrbs >= 15, "NUM 15：首批消除 ≥15 粒");
+        CHECK(sn.goalsMet && sn.firstOrbs == 15, "NUM 15：首批消除剛好 15 粒");
+        { Outcome on = replay(bn, sn.start, sn.dirs, cn, rn); CHECK(on.legal && on.goalsMet, "NUM 15：重播確認剛好 15 粒"); }
         int ok = 0, n = 40; std::mt19937 rq(5);
         for (int k = 0; k < n; k++) {
             uint8_t bb[MAX_CELLS]; for (int i = 0; i < 30; i++) bb[i] = rq() % 6;
-            Solution s = solve(bb, cn, rn); if (s.goalsMet && s.firstOrbs >= 15) ok++;
+            Solution s = solve(bb, cn, rn); if (s.goalsMet && s.firstOrbs == 15) ok++;
         }
         std::printf("NUM15 隨機盤達成 %d / %d\n", ok, n);
         CHECK(ok >= n * 0.9, "NUM 15：隨機盤大多能破");

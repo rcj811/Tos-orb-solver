@@ -489,14 +489,15 @@ class AutoTurnService : AccessibilityService() {
 
     // ---------------- 只轉這一回合 ----------------
 
-    private fun onOnceTap() {
+    /** forced 不為 null：直接用這組條件（關卡面板按「完成」時），不重新比對關卡 */
+    private fun onOnceTap(forced: StageRules? = null) {
         if (running || busy || !checkReady()) return
         busy = true
         updateBar("…")
         captureClean { frame ->
             if (frame == null) { finishOnce("截圖失敗"); return@captureClean }
             val geo = settings.geometry
-            applyStageFor(frame, geo)
+            if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
             val unknown = rec.unknownCount()
             if (unknown > geo.cells / 3) {
@@ -921,7 +922,7 @@ class AutoTurnService : AccessibilityService() {
                 val (idx, _) = StageMatcher.best(sig, presets)
                 // 每次按「關」都從空白開始，照眼前這隻王重新設定（按完成會覆蓋這關原本記住的條件）
                 val initial = StageRules()
-                toast("條件已清空，請照這隻王的盾設定後按「完成」，會自動開始轉珠")
+                toast("條件已清空，請照這隻王的盾設定後按「完成」，會照條件轉這一回合")
                 showStagePanel(sig, idx, initial)
             }
         }
@@ -1002,8 +1003,8 @@ class AutoTurnService : AccessibilityService() {
         fun attrLabel() = if (edit.firstAttrMin == 0) "首消屬性盾：無" else "首消屬性 ≥${edit.firstAttrMin}"
         val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
         val orbsChoices = intArrayOf(0) + (10..20).toList().toIntArray()
-        fun orbsLabel() = if (edit.firstOrbsMin == 0) "首消粒數盾：無" else "首消 ≥${edit.firstOrbsMin} 粒"
-        val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsMin = cycle(orbsChoices, edit.firstOrbsMin); b.text = orbsLabel(); refresh() }
+        fun orbsLabel() = if (edit.firstOrbsExact == 0) "首消粒數盾：無" else "首消剛好 ${edit.firstOrbsExact} 粒"
+        val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsExact = cycle(orbsChoices, edit.firstOrbsExact); b.text = orbsLabel(); refresh() }
         fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
         fun fireLabel() = "火焰路徑：" + if (edit.firePath) "開" else "關"
         val stickyBtn = btn(stickyLabel()) { b -> edit.sticky = !edit.sticky; b.text = stickyLabel(); refresh() }
@@ -1052,8 +1053,10 @@ class AutoTurnService : AccessibilityService() {
             btn("完成") {
                 closeStagePanel()
                 saveStagePreset(sig, presetIdx, edit)
-                // 存好條件後直接開始自動執行，照這關的條件轉珠破關
-                main.postDelayed({ if (!running && !busy) toggleAuto() }, 300)
+                // 存好條件後照這組條件「只轉這一回合」（等面板消失再截圖）
+                val forced = StageRules().apply { copyFrom(edit) }
+                if (!forced.isEmpty()) toast("照條件轉一次：${forced.summary()}")
+                main.postDelayed({ if (!running && !busy) onOnceTap(forced) }, 400)
             },
         ))
         refresh()

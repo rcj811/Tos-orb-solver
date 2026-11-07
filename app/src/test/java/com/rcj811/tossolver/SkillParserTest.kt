@@ -20,8 +20,8 @@ class SkillParserTest {
     @Test
     fun parsesFirstOrbsShield() {
         for (t in listOf("【首消≥15粒符石盾】", "【首消 ≧15 粒符石盾】", "【首批消除15粒或以上符石】", "【符石數量盾≥15】"))
-            assertEquals(t, 15, SkillParser.parse(t).rules.firstOrbsMin)
-        assertEquals(0, SkillParser.parse("【首消≥8組屬性符石盾】").rules.firstOrbsMin)
+            assertEquals(t, 15, SkillParser.parse(t).rules.firstOrbsExact)
+        assertEquals(0, SkillParser.parse("【首消≥8組屬性符石盾】").rules.firstOrbsExact)
     }
 
     @Test

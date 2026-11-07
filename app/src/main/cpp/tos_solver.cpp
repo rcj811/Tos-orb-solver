@@ -173,7 +173,7 @@ bool goalsOk(const Info& in, int pos) {
     if (in.elecLeft) return false;
     if (in.combos < RU.comboMin || in.first < RU.firstMin) return false;
     if (in.firstAttr < RU.firstAttrMin) return false;
-    if (in.firstOrbs < RU.firstOrbsMin) return false;
+    if (RU.firstOrbsExact && in.firstOrbs != RU.firstOrbsExact) return false;
     if (RU.firstExact >= 0 && in.first != RU.firstExact) return false;
     if (in.firstMask & RU.antiMask) return false;
     if ((in.mask & RU.elemMask) != RU.elemMask) return false;
@@ -216,8 +216,12 @@ void score(State& s) {
     if (RU.firstAttrMin && in.firstAttr < RU.firstAttrMin) w -= (RU.firstAttrMin - in.firstAttr) * 800;
     if (RU.firstAttrMin) w += in.firstAttr * 400;
     // 首消符石數量盾：每差 1 粒扣分，引導搜尋把同色珠集中在第一批消除
-    if (RU.firstOrbsMin && in.firstOrbs < RU.firstOrbsMin) w -= (RU.firstOrbsMin - in.firstOrbs) * 300;
-    if (RU.firstOrbsMin) w += std::min(in.firstOrbs, RU.firstOrbsMin) * 150;
+    // NUM 盾：首批要剛好 X 粒，多或少都扣分（距離越遠扣越多），剛好再加分
+    if (RU.firstOrbsExact) {
+        int d = std::abs(in.firstOrbs - RU.firstOrbsExact);
+        w -= d * 300;
+        if (d == 0) w += 1500;
+    }
     if (RU.firstExact >= 0) w -= std::abs(in.first - RU.firstExact) * 1500;
     w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
@@ -388,7 +392,7 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
         out.meta[i] = (m >= 0 && m < 6) ? m : -1;
     }
     if (n >= RULES_INTS) out.firstAttrMin = std::max(0, v[RULES_INTS_V1]);
-    if (n >= RULES_INTS) out.firstOrbsMin = std::max(0, v[RULES_INTS_V1 + 1]);
+    if (n >= RULES_INTS) out.firstOrbsExact = std::max(0, v[RULES_INTS_V1 + 1]);
     return true;
 }
 

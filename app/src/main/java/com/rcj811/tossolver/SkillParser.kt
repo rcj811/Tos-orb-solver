@@ -99,10 +99,10 @@ object SkillParser {
 
             // 首消符石數量盾（盾牌圖示 NUM X）：首批消除 X 粒或以上符石
             Regex("首(?:消|批消除?)≥?(\\d{1,2})(?:粒|顆|個)(?:或以上)?(?:符石)?(?:數量)?盾?").find(s)?.let {
-                r.firstOrbsMin = it.groupValues[1].toInt(); ok("首消≥${r.firstOrbsMin}粒符石")
+                r.firstOrbsExact = it.groupValues[1].toInt(); ok("首消剛好${r.firstOrbsExact}粒符石")
             }
             if (!hit) Regex("(?:首消)?符石數量盾≥?(\\d{1,2})|首消(\\d{1,2})粒").find(s)?.let {
-                r.firstOrbsMin = (it.groupValues[1].ifEmpty { it.groupValues[2] }).toInt(); ok("首消≥${r.firstOrbsMin}粒符石")
+                r.firstOrbsExact = (it.groupValues[1].ifEmpty { it.groupValues[2] }).toInt(); ok("首消剛好${r.firstOrbsExact}粒符石")
             }
             if (!hit) Regex("首消≥?(\\d{1,2})組?屬性符石盾").find(s)?.let {
                 r.firstAttrMin = it.groupValues[1].toInt(); ok("首消≥${r.firstAttrMin}組屬性符石（心不算）")
