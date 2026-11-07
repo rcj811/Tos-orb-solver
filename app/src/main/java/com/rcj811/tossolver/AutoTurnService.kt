@@ -118,6 +118,7 @@ class AutoTurnService : AccessibilityService() {
     private var lastActed: IntArray? = null
     private var lastActedAt = 0L
     private var lastProgressAt = 0L
+    private var lastBoardAt = 0L      // 上次看到轉珠盤面的時間
     private val ruleTapAt = HashMap<Int, Long>()
     private var lastRule = -1
     private var sameRuleTaps = 0
@@ -570,6 +571,7 @@ class AutoTurnService : AccessibilityService() {
         lastActionAt = SystemClock.uptimeMillis(); lastHintAt = 0L
         presets = presetStore.load()
         lastProgressAt = SystemClock.uptimeMillis()
+        lastBoardAt = SystemClock.uptimeMillis()
         updateBar()
         val stageText = if (!stage.isEmpty()) "\n照關卡條件轉珠：${stage.summary()}" else ""
         toast("[${appVersion(this)}] " + (if (rules.isEmpty()) "自動執行：開始（只會轉珠；按「＋」新增點擊規則可自動過關卡）" else "自動執行：開始（${rules.size} 條點擊規則）") + stageText)
@@ -616,6 +618,7 @@ class AutoTurnService : AccessibilityService() {
         // 遊戲的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
         // 改成只看是否靜止；有現成三連時多確認一張截圖，避免抓到消除動畫中間的畫面
         val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells)
+        if (ready) lastBoardAt = now
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張
         val needStable = if (unknown > 0 && pending > 0) 3 else 2
         val alreadyDone = OrbRecognizer.sameMasked(board, lastActed) && now - lastActedAt < 5000
@@ -720,6 +723,13 @@ class AutoTurnService : AccessibilityService() {
             }
         }
 
+        // 偵測不到轉珠盤面：自動暫停（沒有點擊規則 8 秒；有點擊規則時給戰鬥外畫面 30 秒）
+        val noBoardMs = if (rules.isEmpty()) 8_000L else 30_000L
+        if (!ready && now - lastBoardAt > noBoardMs && now - lastActionAt > noBoardMs) {
+            busy = false
+            stopAuto("沒有偵測到轉珠盤面，自動轉珠已暫停（回到戰鬥後按 ▶ 繼續）")
+            return
+        }
         if (now - lastProgressAt > IDLE_STOP_MS) {
             busy = false
             stopAuto("3 分鐘沒有可轉的盤面或可點的畫面，已停止自動執行")
