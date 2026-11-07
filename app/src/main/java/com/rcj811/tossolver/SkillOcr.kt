@@ -9,6 +9,28 @@ import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 object SkillOcr {
     private val recognizer by lazy { TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()) }
 
+    /**
+     * 讀敵人身上的 NUM 盾數字（每回合會變，例如 15 → 12 → 6）。
+     * 只讀盤面上方、隊伍頭像以上的敵人區域；讀不到回傳 null。
+     */
+    fun readNum(frame: Frame, geo: BoardGeometry, cb: (Int?) -> Unit) {
+        val h = (geo.top - geo.cell * 1.4f).toInt().coerceIn(1, frame.height)
+        val bmp = try {
+            Bitmap.createBitmap(frame.pixels, 0, frame.width, frame.width, h, Bitmap.Config.ARGB_8888)
+        } catch (_: Throwable) {
+            cb(null); return
+        }
+        try {
+            recognizer.process(InputImage.fromBitmap(bmp, 0))
+                .addOnSuccessListener { cb(SkillParser.parseNum(it.text)) }
+                .addOnFailureListener { cb(null) }
+                .addOnCompleteListener { bmp.recycle() }
+        } catch (_: Throwable) {
+            bmp.recycle()
+            cb(null)
+        }
+    }
+
     /** 讀出整張截圖的文字；失敗回傳 null。結果在主執行緒回呼 */
     fun read(frame: Frame, cb: (String?) -> Unit) {
         val bmp = try {

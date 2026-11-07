@@ -505,9 +505,28 @@ class AutoTurnService : AccessibilityService() {
                 return@captureClean
             }
             if (unknown > 0) toast("$unknown 格無法辨識，路徑會避開它們")
-            val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(rec.dissolvableColors())
-            if (why != null) toast("$why，需要用角色技能轉珠；先幫你打最多 combo")
-            solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
+            val go = {
+                val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(rec.dissolvableColors())
+                if (why != null) toast("$why，需要用角色技能轉珠；先幫你打最多 combo")
+                solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
+            }
+            // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
+            if (forced != null) go() else withNum(frame, geo) { go() }
+        }
+    }
+
+    /** 讀 NUM 盾數字；讀到就套用到這一回合（不存進關卡記錄，因為每回合都會變） */
+    private fun withNum(frame: Frame, geo: BoardGeometry, then: () -> Unit) {
+        SkillOcr.readNum(frame, geo) { n ->
+            if (n != null) {
+                if (stage.firstOrbsExact != n) toast("讀到 NUM 盾：首消剛好 $n 粒")
+                stage = StageRules().apply { copyFrom(stage); firstOrbsExact = n }
+            } else if (stage.firstOrbsExact > 0) {
+                // 沒有 NUM 盾（或讀不到）：不沿用舊數字，避免打錯
+                stage = StageRules().apply { copyFrom(stage); firstOrbsExact = 0 }
+            }
+            updateBar()
+            then()
         }
     }
 
@@ -623,12 +642,15 @@ class AutoTurnService : AccessibilityService() {
                             return@captureClean
                         }
                     }
+                    // NUM 盾數字每回合會變：每回合都重新讀敵人身上的數字
+                    withNum(clean ?: frame, geo) num@{
+                    if (!running) { busy = false; updateBar(); return@num }
                     // 真的過不了：首消條件在這盤數學上不可能（例如首消≥8組屬性且不能消水），立即交給使用者
                     val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(rec.dissolvableColors())
                     if (why != null) {
                         busy = false
                         alertManual("$why，需要用角色技能轉珠。已停止，請手動處理")
-                        return@captureClean
+                        return@num
                     }
                     solveAndAct(rec, geo) { ok ->
                         if (lastNoMove) {
@@ -644,6 +666,7 @@ class AutoTurnService : AccessibilityService() {
                             return@solveAndAct
                         }
                         next(if (ok) 2500 else 1000)
+                    }
                     }
                 }
                 return

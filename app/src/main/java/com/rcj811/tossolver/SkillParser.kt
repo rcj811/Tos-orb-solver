@@ -60,6 +60,14 @@ object SkillParser {
         return t
     }
 
+    /** 從敵人區域的文字找出 NUM 盾數字（OCR 常把 M 讀成 N/W/Ⅲ）；合理範圍 3~30 */
+    fun parseNum(raw: String?): Int? {
+        if (raw == null) return null
+        val t = normalize(raw).uppercase()
+        val m = Regex("N[UV][MNWⅢ][^0-9]{0,2}(\\d{1,2})").find(t) ?: return null
+        return m.groupValues[1].toInt().takeIf { it in 3..30 }
+    }
+
     fun extractSkills(norm: String): List<String> =
         Regex("【([^【】]{2,24})】").findAll(norm).map { it.groupValues[1] }.distinct().toList()
 

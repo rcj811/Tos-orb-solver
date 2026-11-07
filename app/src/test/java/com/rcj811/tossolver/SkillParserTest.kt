@@ -18,6 +18,15 @@ class SkillParserTest {
     """.trimIndent()
 
     @Test
+    fun readsNumShieldNumber() {
+        assertEquals(15, SkillParser.parseNum("CD 1\nNUM 15"))
+        assertEquals(12, SkillParser.parseNum("CD1\nNum12"))
+        assertEquals(6, SkillParser.parseNum("CD 1 NUN 6"))
+        assertEquals(null, SkillParser.parseNum("CD 1"))
+        assertEquals(null, SkillParser.parseNum(null))
+    }
+
+    @Test
     fun parsesFirstOrbsShield() {
         for (t in listOf("【首消≥15粒符石盾】", "【首消 ≧15 粒符石盾】", "【首批消除15粒或以上符石】", "【符石數量盾≥15】"))
             assertEquals(t, 15, SkillParser.parse(t).rules.firstOrbsExact)
