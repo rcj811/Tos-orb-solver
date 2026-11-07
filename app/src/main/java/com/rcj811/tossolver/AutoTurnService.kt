@@ -572,11 +572,13 @@ class AutoTurnService : AccessibilityService() {
         val unknown = rec.unknownCount()
         val solveCells = rec.solverCells()
         val pending = NativeSolver.countCombos(solveCells, geo.rows)
-        val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells) && pending == 0
+        // 神魔之塔的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
+        // 改成只看是否靜止；有現成三連時多確認一張截圖，避免抓到消除動畫中間的畫面
+        val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells)
+        val needStable = if (pending > 0) 3 else 2
         val alreadyDone = OrbRecognizer.sameMasked(board, lastActed) && now - lastActedAt < 5000
         val waitReason = when {
             unknown > OrbRecognizer.maxUnknown(geo.cells) -> "看不到盤面（$unknown 格認不出來）"
-            pending > 0 -> "盤面還在消除 / 落珠中"
             alreadyDone -> "剛轉過這盤，等新盤面"
             else -> "等盤面靜止"
         }
@@ -588,7 +590,7 @@ class AutoTurnService : AccessibilityService() {
         if (ready && !alreadyDone) {
             if (OrbRecognizer.sameMasked(board, lastSeen)) stableCount++ else { stableCount = 1 }
             lastSeen = board
-            if (stableCount >= 2) {
+            if (stableCount >= needStable) {
                 lastActed = board
                 lastActedAt = now
                 lastProgressAt = now
