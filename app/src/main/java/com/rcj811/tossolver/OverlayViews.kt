@@ -177,8 +177,13 @@ class CalibrationView(context: Context) : View(context) {
                     // 以按下去的那一格為準；手指滑到別格才放開就當作沒點
                     val i = geo.cellAt(downX, downY)
                     if (i >= 0 && geo.cellAt(x, y) == i) {
-                        if (e.eventTime - e.downTime >= HOLD_MS) {
-                            // 長按：切換符石類別（普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 自訂…）
+                        val s = geo.cell
+                        val bx = geo.left + (i % 6) * s + s * 0.76f
+                        val by = geo.top + (i / 6) * s + s * 0.76f
+                        val onBadge = states[i] != OrbState.NORMAL && hypot(downX - bx, downY - by) < s * 0.3f
+                        if (e.eventTime - e.downTime >= HOLD_MS || onBadge) {
+                            // 長按，或點已經出現的類別標籤（例如「強」）：切換到下一個符石類別
+                            // （普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 起點GO → 自訂…）
                             states[i] = OrbTypes.next(states[i])
                             stateEdited[i] = true
                         } else if (!edited[i] && !stateEdited[i] && labels[i] in 0..5 &&

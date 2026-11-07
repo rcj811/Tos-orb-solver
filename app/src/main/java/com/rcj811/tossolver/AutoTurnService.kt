@@ -1287,7 +1287,7 @@ class AutoTurnService : AccessibilityService() {
         val n = v.geo.cells
         val unknown = (0 until n).count { !v.edited[it] && v.conf[it] < OrbRecognizer.UNKNOWN_CONF }
         val fixed = (0 until n).count { v.edited[it] }
-        calibInfo?.text = "把格線對齊盤面（按住不放、震一下後再移動＝拖整個格線；右下圓點＝縮放）。點有「?」的格子＝確認判斷正確（同顏色的問號一起消失）；再點＝改顏色（每種顏色改一顆，同種的會自動跟著更新），長按放開＝切換符石類別（強化／風化黏腐／觸電／冰封石化／自訂）；沒有合適的按「＋類別」新增。\n" +
+        calibInfo?.text = "把格線對齊盤面（按住不放、震一下後再移動＝拖整個格線；右下圓點＝縮放）。點有「?」的格子＝確認判斷正確（同顏色的問號一起消失）；再點＝改顏色（每種顏色改一顆，同種的會自動跟著更新），長按放開＝切換符石類別（出現標籤後直接點標籤＝換下一個）（強化／風化黏腐／觸電／冰封石化／自訂）；沒有合適的按「＋類別」新增。\n" +
             "無法辨識 $unknown 格・已修正 $fixed 格・累計學習 ${colorStore.learnedSamples} 格"
     }
 
