@@ -117,7 +117,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 <header>
   <h1>自轉珠 操作手冊</h1>
   <p class="lead">自動轉珠：浮動工作列、自動判斷盤面與關卡條件、越玩越準。</p>
-  <span class="ver">對應版本：build-41（v0.1.41）以上</span>
+  <span class="ver">對應版本：build-45（v0.1.45）以上</span>
   <nav class="toc" aria-label="目錄">
     <a href="#start">第一次使用</a><a href="#bar">工作列</a><a href="#auto">自動執行</a><a href="#calib">校：校正盤面</a>
     <a href="#stage">關：關卡條件</a><a href="#types">符石類別</a><a href="#rules">＋：點擊規則</a><a href="#app">App 設定</a><a href="#faq">常見問題</a>
@@ -173,19 +173,25 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 <h2 id="auto">▶ 自動執行怎麼運作</h2>
 <h3>戰鬥中，每一回合</h3>
 <ol class="steps">
-  <li>等盤面靜止：連續兩張截圖的盤面一樣，而且沒有問號（認不出的格子）。盤面本來就有三連也會照常轉。</li>
+  <li>等盤面靜止：連續兩張截圖的盤面一樣。盤面本來就有三連也會照常轉。認不出的格子（問號）在 1/3 以內（6×5 盤 10 格）照樣轉，那些格子當障礙繞開。</li>
   <li>判斷關卡：比對敵人畫面，認出記住的關卡就套用條件，工作列的「關」會變黃色。</li>
   <li>沒看過的關卡：若「自動讀王技能」是開的，程式會長按王打開技能視窗，讀出盾的條件並記住。</li>
   <li>讀 NUM 盾數字：NUM 盾的數字每回合會變，每回合都重新讀。</li>
   <li>計算最佳轉法：在轉珠時間內把路徑用滿，combo 最多、消珠最多，而且符合所有關卡條件。</li>
   <li>先在畫面上顯示路徑，再自動拖曳。</li>
 </ol>
-<h3>什麼時候會自己停下來並震動提醒</h3>
+<h3>條件做不到時：照最接近的轉，不會停住</h3>
+<p>下面這些情況，程式會跳一行提示，然後<b>照最接近條件的轉法直接轉</b>，自動執行也會繼續：</p>
 <ul class="plain">
-  <li>這盤找不到同時符合所有關卡條件的轉法（例如 NUM 盾湊不到剛好的粒數）。程式不會為了打 combo 而亂轉。</li>
-  <li>條件在這盤數學上不可能，例如必消水但盤面水不到 3 顆。</li>
-  <li>盤面全部是不能碰的珠子。</li>
+  <li>這盤找不到完全符合所有關卡條件的轉法，例如 NUM 盾湊不到剛好的粒數，就選最接近的粒數。</li>
+  <li>條件在這盤數學上做不到，例如必消水但盤面水不到 3 顆。</li>
+  <li>自動讀王技能時，有需要你補充的機制（之後可以按「關」補上）。</li>
+</ul>
+<h3>只有這些情況會停下來並震動提醒</h3>
+<ul class="plain">
+  <li>盤面全部是不能碰的珠子，一步都動不了。</li>
   <li>看到你設定為「看到就停止」的畫面，例如戰敗、體力不足。</li>
+  <li>按「轉」時一半以上的格子認不出來，通常代表畫面不是戰鬥盤面。</li>
 </ul>
 
 <!-- ================= 校正 ================= -->
@@ -194,7 +200,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
   <span class="tap-hint">點圖上的按鈕或格子看說明</span>
   <div class="center"><div>
   <div class="panel" style="max-width:340px">
-    <div class="hint">把格線對齊盤面（拖曳移動、右下圓點縮放）。點有「?」的格子＝確認判斷正確；再點＝改顏色；長按＝切換符石類別。<br>無法辨識 3 格・已修正 1 格・累計學習 1331 格</div>
+    <div class="hint">把格線對齊盤面（按住不放、震一下後再移動＝拖整個格線；右下圓點＝縮放）。點有「?」的格子＝確認判斷正確；再點＝改顏色；長按放開＝切換符石類別（出現標籤後直接點標籤＝換下一個）。<br>無法辨識 3 格・已修正 1 格・累計學習 1331 格</div>
     <div class="prow" style="grid-template-columns:repeat(3,1fr)">
       <div class="pbtn">自動偵測<span class="num">1</span></div><div class="pbtn">列數 5<span class="num">2</span></div><div class="pbtn">重新截圖<span class="num">3</span></div>
       <div class="pbtn">＋類別<span class="num">4</span></div><div class="pbtn">儲存並學習<span class="num">5</span></div><div class="pbtn">關閉</div>
@@ -214,11 +220,12 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 </figure>
 <div class="tbl"><table>
   <tr><th>操作</th><th>效果</th></tr>
-  <tr><td>拖曳格線</td><td>移動整個格線，對齊遊戲的盤面。</td></tr>
+  <tr><td>按住不放，震一下後再移動</td><td>移動整個格線，對齊遊戲的盤面。一按下就滑動不會移動格線，避免點珠子時手指晃到。</td></tr>
   <tr><td>拖右下圓點</td><td>放大縮小格線。</td></tr>
   <tr><td>點有「?」的珠子</td><td><b>確認判斷正確</b>。同一種顏色、有問號的珠子會<b>一起確認</b>，問號全部消失。</td></tr>
   <tr><td>再點一次（或點沒有問號的珠子）</td><td>換顏色：火 → 水 → 木 → 光 → 暗 → 心。每種顏色改一顆，同種的會自動跟著更新。</td></tr>
-  <tr><td>長按珠子</td><td>切換符石類別：普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 起點GO → 自訂類別…</td></tr>
+  <tr><td>長按珠子再放開</td><td>切換符石類別：普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 起點GO → 自訂類別…，珠子右下角會出現類別標籤。</td></tr>
+  <tr><td>點右下角的類別標籤</td><td>直接換到下一個類別，不用再長按。換回「普通」時標籤消失。</td></tr>
   <tr><td><span class="legend-num">1</span>自動偵測</td><td>自動找盤面位置。</td></tr>
   <tr><td><span class="legend-num">2</span>列數</td><td>切換盤面列數（5、6、7 列等）。</td></tr>
   <tr><td><span class="legend-num">3</span>重新截圖</td><td>盤面變了（例如動畫播完）時重新截一張。</td></tr>
@@ -230,7 +237,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 <!-- ================= 關卡條件 ================= -->
 <h2 id="stage">關：關卡條件</h2>
 <p>按「關」時，<b>條件每次都從空白開始</b>，請照眼前這隻王的盾重新設定。設定好後按 <b>完成</b>：程式會記住這一關，並且<b>照這些條件只轉這一回合</b>，不會開始連續的自動執行。</p>
-<p>小技巧：先在遊戲裡<b>長按王</b>打開技能視窗，再按「關」，程式會讀出技能文字，自動設定看得懂的條件。</p>
+<p>小技巧：先在遊戲裡<b>長按王</b>打開技能視窗，再按「關」，程式會讀出技能文字，自動設定看得懂的條件，例如「五屬傷害盾」會自動把火水木光暗都設成必消；「電擊符石」則靠符石辨識（先在「校」把電擊符石標成「觸電」）。</p>
 <figure id="fig-stage">
   <span class="tap-hint">點圖上的按鈕或格子看說明</span>
   <div class="center"><div>
@@ -291,7 +298,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 </table></div>
 
 <h3>盾與條件按鈕</h3>
-<p>每按一下換一個數值，最後會回到「無」。可以同時設定好幾個條件，<b>全部都要符合</b>才會轉。</p>
+<p>每按一下換一個數值，最後會回到「無」。可以同時設定好幾個條件，程式會找<b>全部都符合</b>的轉法；這盤做不到時，照最接近條件的轉法轉。</p>
 <div class="tbl"><table>
   <tr><th>按鈕</th><th>意思</th><th>可選數值</th></tr>
   <tr><td>Combo盾</td><td>整回合（含疊珠）至少 X combo。</td><td>5～12</td></tr>
@@ -321,7 +328,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 
 <!-- ================= 符石類別 ================= -->
 <h2 id="types">符石類別</h2>
-<p>在校正畫面<b>長按</b>珠子切換類別，按「儲存並學習」後，之後看到同樣的樣子會自動認出。</p>
+<p>在校正畫面<b>長按</b>珠子切換類別（出現標籤後，直接點標籤換下一個），按「儲存並學習」後，之後看到同樣的樣子會自動認出。</p>
 <div class="tbl"><table>
   <tr><th>類別（標籤）</th><th>能不能碰</th><th>消除方式</th><th>例子</th></tr>
   <tr><td>普通</td><td>可以</td><td>照常消除</td><td>一般珠、種族符石</td></tr>
@@ -392,7 +399,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
 <h2 id="faq">常見問題</h2>
 <h3>按 ▶ 不會轉？</h3>
 <ul class="plain">
-  <li>盤面有認不出的格子：按「校」，點問號確認或修正，再按「儲存並學習」。</li>
+  <li>認不出的格子太多（超過 1/3）：按「校」，點問號確認或修正，再按「儲存並學習」。</li>
   <li>盤面還在動（落珠動畫）：等一下，程式要連續兩張截圖一樣才會轉。</li>
   <li>格線沒對齊：按「校」重新對齊。</li>
 </ul>
@@ -518,7 +525,7 @@ figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: ce
     d.dataset.tip = q.has(i)
       ? `<b>有問號的${c}珠</b>：程式判斷是${c}但沒把握。點一下＝確認正確，所有有問號的${c}珠會一起確認。判斷錯了就再點一次換顏色。`
       : edited.has(i) ? `<b>黃框</b>：這顆是你確認或改過的，按「儲存並學習」後會學起來。`
-      : ice.has(i) ? `<b>「冰」標籤</b>：長按珠子切換類別，這顆被標成冰封／石化（不能碰、不能消）。`
+      : ice.has(i) ? `<b>「冰」標籤</b>：這顆被標成冰封／石化（不能碰、不能消）。直接點這個標籤換下一個類別。`
       : `<b>${c}珠</b>：點一下換顏色（火→水→木→光→暗→心），長按切換符石類別。`;
   });
   r.dataset.tip = "<b>縮放圓點</b>：拖這個圓點放大縮小格線，讓格線對齊遊戲的盤面。";
