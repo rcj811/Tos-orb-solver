@@ -1,0 +1,543 @@
+<title>自轉珠操作手冊</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&display=swap">
+<style>
+/* 版面：單欄閱讀＋仿 App 的深色示意圖，每張圖有編號圓點對應下方說明 */
+:root {
+  --bg: #f3f5f4;
+  --paper: #ffffff;
+  --ink: #18201d;
+  --muted: #5b6a64;
+  --line: #d7dfdb;
+  --accent: #6a1b9a;
+  --accent-soft: #efe4f5;
+  --warn: #b26a00;
+  --warn-soft: #fff3df;
+  --screen: #1b2024;
+  --screen-ink: #eef2f1;
+  --f-display: "Noto Serif TC", "Songti TC", serif;
+  --f-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121615; --paper: #1a201e; --ink: #e8eeeb; --muted: #9db0a8; --line: #2c3633;
+  --accent: #ce93d8; --accent-soft: #2c2131; --warn: #ffb74d; --warn-soft: #2e2416;
+  --screen: #0c0f11; --screen-ink: #eef2f1; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121615; --paper: #1a201e; --ink: #e8eeeb; --muted: #9db0a8; --line: #2c3633;
+  --accent: #ce93d8; --accent-soft: #2c2131; --warn: #ffb74d; --warn-soft: #2e2416;
+  --screen: #0c0f11; --screen-ink: #eef2f1; color-scheme: dark }
+
+* { box-sizing: border-box }
+i { font-style: normal }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.75 }
+.wrap { max-width: 760px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.3 }
+h1 { font-size: 2.1rem; margin: 0 0 6px; font-weight: 900 }
+h2 { font-size: 1.45rem; margin: 48px 0 12px; padding-top: 16px; border-top: 2px solid var(--ink) }
+h3 { font-size: 1.12rem; margin: 26px 0 8px }
+p { margin: 8px 0 }
+.lead { color: var(--muted); margin: 0 }
+.ver { display: inline-block; margin-top: 10px; font-size: .85rem; padding: 2px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 700 }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0 }
+nav.toc a { font-size: .9rem; padding: 4px 12px; border: 1px solid var(--line); border-radius: 99px; color: var(--ink); text-decoration: none; background: var(--paper) }
+nav.toc a:focus-visible, nav.toc a:hover { border-color: var(--accent); color: var(--accent) }
+.note { background: var(--warn-soft); border-left: 4px solid var(--warn); padding: 10px 14px; border-radius: 4px; margin: 14px 0 }
+.note b { color: var(--warn) }
+ol.steps, ul.plain { padding-left: 1.3em; margin: 8px 0 }
+ol.steps li, ul.plain li { margin: 6px 0 }
+table { border-collapse: collapse; width: 100%; font-size: .95rem; background: var(--paper) }
+.tbl { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 6px }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top }
+th { font-weight: 700; white-space: nowrap; background: var(--bg) }
+tr:last-child td { border-bottom: 0 }
+td:first-child { white-space: nowrap; font-weight: 500 }
+kbd { font-family: var(--f-body); font-size: .9em; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--paper) }
+
+/* ---- 示意圖（仿遊戲畫面，固定深色） ---- */
+figure { margin: 16px 0; background: var(--screen); color: var(--screen-ink); border-radius: 10px; padding: 18px 14px 14px; overflow-x: auto }
+figcaption { font-size: .85rem; color: #a9b8b2; margin-top: 10px; text-align: center }
+.bar { display: inline-flex; gap: 6px; padding: 6px; border-radius: 30px; background: rgba(25,32,38,.95); border: 1px solid rgba(255,255,255,.6); position: relative }
+.bb { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 17px; position: relative }
+.num { position: absolute; top: -14px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #ffd54f; color: #111; font-size: 12px; display: grid; place-items: center; font-weight: 700; box-shadow: 0 0 0 2px var(--screen) }
+.center { display: flex; justify-content: center }
+.states { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; margin-top: 16px; font-size: .85rem; color: #cfd8d4 }
+.states span { display: inline-flex; align-items: center; gap: 6px }
+.dot { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px }
+
+.panel { background: rgba(32,36,40,.96); border-radius: 8px; padding: 10px; font-size: 13px; line-height: 1.5; min-width: 300px }
+.panel .hint { color: #e0e6e3; margin-bottom: 8px }
+.prow { display: grid; gap: 6px; margin-top: 6px }
+.pbtn { background: #3a4046; color: #fff; border-radius: 18px; text-align: center; padding: 6px 4px; font-size: 12.5px; position: relative; white-space: nowrap }
+.pbtn.sel::before { content: "● " }
+.chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; color: #e0e6e3 }
+.chip { width: 28px; height: 28px; border-radius: 50%; background: #4a5056; display: grid; place-items: center; font-size: 12px }
+.chip.on { background: #1565c0 }
+
+.board { display: grid; grid-template-columns: repeat(6, 44px); grid-template-rows: repeat(5, 44px); border: 2px solid #26c6da; margin: 12px auto 0; width: max-content; position: relative }
+.cell { border: 1px solid rgba(255,255,255,.35); position: relative; display: grid; place-items: center }
+.orb { width: 32px; height: 32px; border-radius: 50%; opacity: .9 }
+.o0 { background: #ce280d } .o1 { background: #43a3e6 } .o2 { background: #25c325 } .o3 { background: #e9a301 } .o4 { background: #c51fdb } .o5 { background: #e02b87 }
+.lab { position: absolute; left: 2px; top: 2px; width: 17px; height: 17px; border-radius: 50%; background: #fff; color: #111; font-size: 10px; display: grid; place-items: center; font-weight: 700 }
+.lab.ed { box-shadow: 0 0 0 2px #ffeb3b }
+.q { position: absolute; right: 1px; top: 1px; width: 15px; height: 15px; border-radius: 50%; background: #d50000; color: #fff; font-size: 10px; display: grid; place-items: center; font-weight: 700 }
+.st { position: absolute; right: 1px; bottom: 1px; min-width: 16px; height: 16px; border-radius: 8px; background: #4fc3f7; color: #000; font-size: 9px; display: grid; place-items: center; padding: 0 2px; font-weight: 700 }
+.resize { position: absolute; right: -12px; bottom: -12px; width: 22px; height: 22px; border-radius: 50%; background: #26c6da }
+.mk-shield { background: rgba(255,214,0,.55) }
+.mk-burn::after { content: ""; position: absolute; inset: 5px; background: rgba(229,57,53,.6) }
+.mk-flame::after { content: ""; position: absolute; inset: 6px; border: 3px solid #ff6d00; border-radius: 50% }
+.mk-hole::after { content: ""; position: absolute; inset: 12px; background: #000; border-radius: 50% }
+.mk-crack::after { content: "✕"; position: absolute; inset: 0; display: grid; place-items: center; color: #ddd; font-size: 24px }
+.circ { position: absolute; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700 }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 14px; font-size: .82rem; color: #cfd8d4; margin-top: 12px }
+.legend span { display: inline-flex; align-items: center; gap: 6px }
+.sw { width: 18px; height: 18px; border-radius: 3px; display: inline-block; flex: none; position: relative }
+
+.app { background: #fafafa; color: #222; border-radius: 12px; padding: 14px; max-width: 360px; margin: 0 auto; font-size: 13px }
+.app h4 { margin: 0 0 4px; font-size: 18px; font-family: var(--f-display) }
+.app .ok { color: #2e7d32; font-weight: 700; margin: 6px 0 }
+.abtn { background: #e3e7ea; border-radius: 6px; padding: 7px 6px; text-align: center; position: relative; font-size: 12.5px }
+.agrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px }
+
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; counter-reset: f }
+.flow div { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: .92rem; counter-increment: f }
+.flow div::before { content: "步驟 " counter(f); display: block; font-size: .75rem; letter-spacing: .08em; color: var(--accent); font-weight: 700 }
+.legend-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #ffd54f; color: #111; font-size: 12px; font-weight: 700; margin-right: 4px; vertical-align: 1px }
+.tipbox { margin: 14px auto 0; max-width: 560px; background: #2a3236; border: 1px solid #455a64; border-radius: 8px; padding: 10px 12px; font-size: .92rem; line-height: 1.65; color: #eef2f1; min-height: 3.2em }
+.tipbox b { color: #ffd54f }
+.tipbox .hint0 { color: #9fb0aa }
+[data-tip] { cursor: pointer }
+[data-tip]:focus-visible, [data-tip].picked { outline: 3px solid #ffd54f; outline-offset: 2px }
+.cell[data-tip].picked { outline-offset: -3px }
+.tap-hint { display: block; text-align: center; font-size: .8rem; color: #ffd54f; margin-bottom: 10px }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto } }
+</style>
+
+<div class="wrap">
+<header>
+  <h1>自轉珠 操作手冊</h1>
+  <p class="lead">自動轉珠：浮動工作列、自動判斷盤面與關卡條件、越玩越準。</p>
+  <span class="ver">對應版本：build-37（v0.1.37）以上</span>
+  <nav class="toc" aria-label="目錄">
+    <a href="#start">第一次使用</a><a href="#bar">工作列</a><a href="#auto">自動執行</a><a href="#calib">校：校正盤面</a>
+    <a href="#stage">關：關卡條件</a><a href="#types">符石類別</a><a href="#rules">＋：點擊規則</a><a href="#app">App 設定</a><a href="#faq">常見問題</a>
+  </nav>
+</header>
+
+<div class="note"><b>使用前請注意：</b>自動操作遊戲可能違反遊戲的使用條款，帳號有被停權的風險，請自行斟酌使用。</div>
+
+<!-- ================= 第一次使用 ================= -->
+<h2 id="start">第一次使用</h2>
+<div class="flow">
+  <div>安裝 APK。更新時<b>直接覆蓋安裝</b>，不要先解除安裝，否則學過的資料會清空。</div>
+  <div>打開「自轉珠」App，照畫面引導按「允許受限設定」，再按「開啟無障礙設定」，把自轉珠打開。</div>
+  <div>進入遊戲的戰鬥，畫面上方會出現浮動工作列。</div>
+  <div>按工作列的 <b>校</b>，把格線對齊盤面，按「儲存並學習」。</div>
+  <div>按 <b>▶</b> 開始自動執行，或按 <b>轉</b> 只轉一回合。</div>
+</div>
+<p>Android 11 以上才能自動截圖、自動轉珠。Android 10 以下只能用 App 裡的「手動模式」。</p>
+
+<!-- ================= 工作列 ================= -->
+<h2 id="bar">浮動工作列</h2>
+<figure id="fig-toolbar">
+  <span class="tap-hint">點圖上的按鈕或格子看說明</span>
+  <div class="center"><div class="bar">
+    <div class="bb" style="background:#455a64">⠿<span class="num">1</span></div>
+    <div class="bb" style="background:#2e7d32">▶<span class="num">2</span></div>
+    <div class="bb" style="background:#c62828">轉<span class="num">3</span></div>
+    <div class="bb" style="background:#1565c0">＋<span class="num">4</span></div>
+    <div class="bb" style="background:#6a1b9a">校<span class="num">5</span></div>
+    <div class="bb" style="background:#546e7a">關<span class="num">6</span></div>
+    <div class="bb" style="background:#37474f">✕<span class="num">7</span></div>
+  </div></div>
+  <div class="states">
+    <span><i class="dot" style="background:#d32f2f">■</i>自動執行中（按一下停止）</span>
+    <span><i class="dot" style="background:#f57c00">轉</i>正在轉這一回合</span>
+    <span><i class="dot" style="background:#f9a825">關</i>已認出記住的關卡</span>
+  </div>
+  <div class="tipbox" aria-live="polite"><span class="hint0">點上面任何一顆按鈕，這裡會顯示說明。</span></div>
+  <figcaption>圖 1　工作列與按鈕狀態</figcaption>
+</figure>
+<div class="tbl"><table>
+  <tr><th>編號</th><th>按鈕</th><th>功能</th></tr>
+  <tr><td><span class="legend-num">1</span></td><td>⠿</td><td><b>拖曳</b>移動工作列（位置會記住）。<b>點一下</b>收合，只留 ⠿ ▶ ✕，再點一下展開。</td></tr>
+  <tr><td><span class="legend-num">2</span></td><td>▶ 自動執行</td><td>全自動：戰鬥中自己轉珠，戰鬥外照點擊規則自己點。執行中變成紅色 ■，再按一下停止。詳見<a href="#auto">自動執行</a>。</td></tr>
+  <tr><td><span class="legend-num">3</span></td><td>轉</td><td>只轉<b>這一回合</b>：截圖、判斷盤面、讀 NUM 盾數字、套用記住的關卡條件，轉一次就停。</td></tr>
+  <tr><td><span class="legend-num">4</span></td><td>＋</td><td>新增<a href="#rules">點擊規則</a>：教程式在戰鬥外自動按哪裡，或看到什麼畫面就停止。</td></tr>
+  <tr><td><span class="legend-num">5</span></td><td>校</td><td><a href="#calib">校正盤面</a>：對齊格線、修正認錯的珠子、標記特殊符石，讓程式學起來。</td></tr>
+  <tr><td><span class="legend-num">6</span></td><td>關</td><td><a href="#stage">關卡條件</a>：設定這隻王的盾和地形，按「完成」照條件轉一回合。</td></tr>
+  <tr><td><span class="legend-num">7</span></td><td>✕</td><td><b>連按兩下</b>（2.5 秒內）關閉自轉珠。要再用，打開自轉珠 App 即可。</td></tr>
+</table></div>
+
+<!-- ================= 自動執行 ================= -->
+<h2 id="auto">▶ 自動執行怎麼運作</h2>
+<h3>戰鬥中，每一回合</h3>
+<ol class="steps">
+  <li>等盤面靜止：連續兩張截圖的盤面一樣，而且沒有問號（認不出的格子）。盤面本來就有三連也會照常轉。</li>
+  <li>判斷關卡：比對敵人畫面，認出記住的關卡就套用條件，工作列的「關」會變黃色。</li>
+  <li>沒看過的關卡：若「自動讀王技能」是開的，程式會長按王打開技能視窗，讀出盾的條件並記住。</li>
+  <li>讀 NUM 盾數字：NUM 盾的數字每回合會變，每回合都重新讀。</li>
+  <li>計算最佳轉法：在轉珠時間內把路徑用滿，combo 最多、消珠最多，而且符合所有關卡條件。</li>
+  <li>先在畫面上顯示路徑，再自動拖曳。</li>
+</ol>
+<h3>什麼時候會自己停下來並震動提醒</h3>
+<ul class="plain">
+  <li>這盤找不到同時符合所有關卡條件的轉法（例如 NUM 盾湊不到剛好的粒數）。程式不會為了打 combo 而亂轉。</li>
+  <li>條件在這盤數學上不可能，例如必消水但盤面水不到 3 顆。</li>
+  <li>盤面全部是不能碰的珠子。</li>
+  <li>看到你設定為「看到就停止」的畫面，例如戰敗、體力不足。</li>
+</ul>
+
+<!-- ================= 校正 ================= -->
+<h2 id="calib">校：校正盤面</h2>
+<figure id="fig-calib">
+  <span class="tap-hint">點圖上的按鈕或格子看說明</span>
+  <div class="center"><div>
+  <div class="panel" style="max-width:340px">
+    <div class="hint">把格線對齊盤面（拖曳移動、右下圓點縮放）。點有「?」的格子＝確認判斷正確；再點＝改顏色；長按＝切換符石類別。<br>無法辨識 3 格・已修正 1 格・累計學習 1331 格</div>
+    <div class="prow" style="grid-template-columns:repeat(3,1fr)">
+      <div class="pbtn">自動偵測<span class="num">1</span></div><div class="pbtn">列數 5<span class="num">2</span></div><div class="pbtn">重新截圖<span class="num">3</span></div>
+      <div class="pbtn">＋類別<span class="num">4</span></div><div class="pbtn">儲存並學習<span class="num">5</span></div><div class="pbtn">關閉</div>
+    </div>
+  </div>
+  <div class="board" id="calib-board"></div>
+  </div></div>
+  <div class="legend">
+    <span><i class="lab" style="position:static">木</i>程式判斷的顏色</span>
+    <span><i class="lab ed" style="position:static">水</i>黃框＝你確認或改過</span>
+    <span><i class="q" style="position:static">?</i>沒把握，請確認</span>
+    <span><i class="st" style="position:static">冰</i>特殊符石類別</span>
+    <span><i class="sw" style="background:#26c6da;border-radius:50%"></i>拖這個圓點縮放格線</span>
+  </div>
+  <div class="tipbox" aria-live="polite"><span class="hint0">點按鈕或盤面上的珠子，這裡會顯示說明。</span></div>
+  <figcaption>圖 2　校正畫面</figcaption>
+</figure>
+<div class="tbl"><table>
+  <tr><th>操作</th><th>效果</th></tr>
+  <tr><td>拖曳格線</td><td>移動整個格線，對齊遊戲的盤面。</td></tr>
+  <tr><td>拖右下圓點</td><td>放大縮小格線。</td></tr>
+  <tr><td>點有「?」的珠子</td><td><b>確認判斷正確</b>。同一種顏色、有問號的珠子會<b>一起確認</b>，問號全部消失。</td></tr>
+  <tr><td>再點一次（或點沒有問號的珠子）</td><td>換顏色：火 → 水 → 木 → 光 → 暗 → 心。每種顏色改一顆，同種的會自動跟著更新。</td></tr>
+  <tr><td>長按珠子</td><td>切換符石類別：普通 → 強化 → 風化/黏腐 → 觸電 → 冰封/石化 → 起點GO → 自訂類別…</td></tr>
+  <tr><td><span class="legend-num">1</span>自動偵測</td><td>自動找盤面位置。</td></tr>
+  <tr><td><span class="legend-num">2</span>列數</td><td>切換盤面列數（5、6、7 列等）。</td></tr>
+  <tr><td><span class="legend-num">3</span>重新截圖</td><td>盤面變了（例如動畫播完）時重新截一張。</td></tr>
+  <tr><td><span class="legend-num">4</span>＋類別</td><td>遇到程式不認識的新符石，新增一種類別。見<a href="#types">符石類別</a>。</td></tr>
+  <tr><td><span class="legend-num">5</span>儲存並學習</td><td>儲存格線位置，並把你確認、修改過的珠子學起來。之後遇到同樣的樣子就會自動認出。</td></tr>
+</table></div>
+<p>右上角的「累計學習」是學過的格數，越多越準。</p>
+
+<!-- ================= 關卡條件 ================= -->
+<h2 id="stage">關：關卡條件</h2>
+<p>按「關」時，<b>條件每次都從空白開始</b>，請照眼前這隻王的盾重新設定。設定好後按 <b>完成</b>：程式會記住這一關，並且<b>照這些條件只轉這一回合</b>，不會開始連續的自動執行。</p>
+<p>小技巧：先在遊戲裡<b>長按王</b>打開技能視窗，再按「關」，程式會讀出技能文字，自動設定看得懂的條件。</p>
+<figure id="fig-stage">
+  <span class="tap-hint">點圖上的按鈕或格子看說明</span>
+  <div class="center"><div>
+  <div class="panel" style="max-width:380px">
+    <div class="hint">目前：NUM盾 首消剛好12粒、必消珠 1 顆　［build-37］<br>選一種筆刷後點下方盤面格子（再點一次取消）。按「完成」＝照這些條件只轉這一回合。</div>
+    <div class="prow" style="grid-template-columns:repeat(4,1fr)">
+      <div class="pbtn sel">拼圖盾</div><div class="pbtn">燃燒(不碰)</div><div class="pbtn">火焰區(終點)</div><div class="pbtn">黑洞(不停)</div>
+    </div>
+    <div class="prow" style="grid-template-columns:repeat(3,1fr)">
+      <div class="pbtn">裂痕</div><div class="pbtn">起點(綠)</div><div class="pbtn">終點(紅)</div>
+    </div>
+    <div class="prow" style="grid-template-columns:repeat(2,1fr)">
+      <div class="pbtn">必消(點珠)</div><div class="pbtn">不消(點珠)</div>
+    </div>
+    <div class="prow" style="grid-template-columns:repeat(3,1fr)">
+      <div class="pbtn">Combo盾：無</div><div class="pbtn">首消Combo：無</div><div class="pbtn">首消每組3顆：關</div>
+    </div>
+    <div class="prow" style="grid-template-columns:repeat(2,1fr)">
+      <div class="pbtn">首消屬性盾：無</div><div class="pbtn">NUM盾：剛好 12 粒</div>
+    </div>
+    <div class="prow" style="grid-template-columns:repeat(2,1fr)">
+      <div class="pbtn">黏手路徑：關</div><div class="pbtn">火焰路徑：關</div>
+    </div>
+    <div class="chips">必消(這回合要消)<span class="chip">火</span><span class="chip on">水</span><span class="chip">木</span><span class="chip">光</span><span class="chip">暗</span><span class="chip">心</span></div>
+    <div class="chips">首消不能消(第一批)<span class="chip">火</span><span class="chip">水</span><span class="chip">木</span><span class="chip">光</span><span class="chip">暗</span><span class="chip">心</span></div>
+    <div class="prow" style="grid-template-columns:repeat(3,1fr)">
+      <div class="pbtn">清除全部</div><div class="pbtn">取消</div><div class="pbtn" style="background:#2e7d32">完成</div>
+    </div>
+  </div>
+  <div class="board" id="stage-board"></div>
+  </div></div>
+  <div class="legend">
+    <span><i class="sw" style="background:rgba(255,214,0,.55)"></i>拼圖盾</span>
+    <span><i class="sw" style="background:rgba(229,57,53,.6)"></i>燃燒（不能碰）</span>
+    <span><i class="sw" style="border:3px solid #ff6d00;border-radius:50%"></i>火焰區（終點）</span>
+    <span><i class="sw" style="background:#000;border-radius:50%"></i>黑洞（不能停）</span>
+    <span><i class="sw" style="color:#ddd;display:grid;place-items:center">✕</i>裂痕</span>
+    <span><i class="dot" style="background:#00c853;width:20px;height:20px;font-size:10px">起</i><i class="dot" style="background:#d50000;width:20px;height:20px;font-size:10px">終</i>起點／終點</span>
+    <span><i class="dot" style="background:#2962ff;width:20px;height:20px;font-size:10px">必</i><i class="dot" style="background:#616161;width:20px;height:20px;font-size:10px">禁</i>必消／不消的珠子</span>
+  </div>
+  <div class="tipbox" aria-live="polite"><span class="hint0">點筆刷、盾按鈕、顏色或盤面上的標記，這裡會顯示說明。</span></div>
+  <figcaption>圖 3　關卡面板（上）與盤面標記（下）</figcaption>
+</figure>
+
+<h3>筆刷：點盤面上的格子</h3>
+<p>先點一支筆刷，再點下方盤面的格子；再點一次同一格就取消。</p>
+<div class="tbl"><table>
+  <tr><th>筆刷</th><th>意思</th><th>標記會不會記住</th></tr>
+  <tr><td>拼圖盾</td><td>標出盾的形狀。第一批要用同一種顏色把這些格子全部消掉。</td><td>記住（同一關形狀固定）</td></tr>
+  <tr><td>燃燒(不碰)</td><td>這些<b>位置</b>不能經過（燃燒、地獄火、雷射等地形）。</td><td>記住</td></tr>
+  <tr><td>火焰區(終點)</td><td>最後一步必須停在其中一格。</td><td>記住</td></tr>
+  <tr><td>黑洞(不停)</td><td>最後一步不能停在這格。</td><td>記住</td></tr>
+  <tr><td>裂痕</td><td>回合結束時停在這個<b>位置</b>的珠子不能被消除。可以經過，跟珠子種類無關。</td><td>記住</td></tr>
+  <tr><td>起點(綠)／終點(紅)</td><td>綠紅漩渦：一定要從綠格出發、停在紅格。</td><td>記住</td></tr>
+  <tr><td>必消(點珠)</td><td>點到的<b>這顆珠</b>這回合一定要消掉，顯示藍色「必」。</td><td><b>只用這一回合</b></td></tr>
+  <tr><td>不消(點珠)</td><td>點到的<b>這顆珠</b>這回合不能消，顯示灰色「禁」。</td><td><b>只用這一回合</b></td></tr>
+</table></div>
+
+<h3>盾與條件按鈕</h3>
+<p>每按一下換一個數值，最後會回到「無」。可以同時設定好幾個條件，<b>全部都要符合</b>才會轉。</p>
+<div class="tbl"><table>
+  <tr><th>按鈕</th><th>意思</th><th>可選數值</th></tr>
+  <tr><td>Combo盾</td><td>整回合（含疊珠）至少 X combo。</td><td>5～12</td></tr>
+  <tr><td>首消Combo</td><td>第一批<b>剛好</b> X combo。</td><td>1～10</td></tr>
+  <tr><td>首消每組3顆</td><td>第一批每一組都只能剛好 3 顆，不能有 4 顆以上連成一組。設定首消Combo 時自動打開，可手動關掉。</td><td>開／關</td></tr>
+  <tr><td>首消屬性盾</td><td>第一批至少 X 組屬性符石（心珠不算）。</td><td>4～8</td></tr>
+  <tr><td>NUM盾</td><td>第一批消除<b>剛好</b> X 粒符石，疊珠不算。敵人身上顯示「NUM 數字」。</td><td>10～20</td></tr>
+  <tr><td>黏手路徑</td><td>碰過的格子不能再碰（路徑不能重複）。</td><td>開／關</td></tr>
+  <tr><td>火焰路徑</td><td>不要重踩剛走過的格子。</td><td>開／關</td></tr>
+  <tr><td>必消(這回合要消)</td><td>點選的顏色，這回合每種都要消到至少一組（多屬性盾，例如水火盾）。</td><td>點顏色開關</td></tr>
+  <tr><td>首消不能消(第一批)</td><td>點選的顏色，第一批不能消（例如「水連擊零化」）。疊珠不算。</td><td>點顏色開關</td></tr>
+</table></div>
+<div class="note"><b>NUM 盾的數字每回合會變</b>（例如 15 → 12 → 6）。按 ▶ 或「轉」時，程式每回合會自己讀敵人身上的數字，並顯示「讀到 NUM 盾：首消剛好 12 粒」。按「關」→「完成」則照你手動設定的數字。</div>
+<h3>下方三顆按鈕</h3>
+<ul class="plain">
+  <li><b>清除全部</b>：把面板上的設定全部清空。</li>
+  <li><b>取消</b>：不儲存，關閉面板。</li>
+  <li><b>完成</b>：記住這一關的條件，並照條件轉這一回合。點珠標記只用這一回合，不會記住。</li>
+</ul>
+<h3>範例</h3>
+<ol class="steps">
+  <li>敵人顯示「NUM 12」，並要求消水：按 <b>關</b>。</li>
+  <li>「NUM盾」按到「剛好 12 粒」。</li>
+  <li>「必消(這回合要消)」點 <b>水</b>。</li>
+  <li>按 <b>完成</b>：程式轉一次，第一批剛好消 12 粒，而且有消到水。</li>
+</ol>
+
+<!-- ================= 符石類別 ================= -->
+<h2 id="types">符石類別</h2>
+<p>在校正畫面<b>長按</b>珠子切換類別，按「儲存並學習」後，之後看到同樣的樣子會自動認出。</p>
+<div class="tbl"><table>
+  <tr><th>類別（標籤）</th><th>能不能碰</th><th>消除方式</th><th>例子</th></tr>
+  <tr><td>普通</td><td>可以</td><td>照常消除</td><td>一般珠、種族符石</td></tr>
+  <tr><td>強化（強）</td><td>可以</td><td>照常消除</td><td>強化符石</td></tr>
+  <tr><td>風化/黏腐（風）</td><td>不能</td><td>盡量消除</td><td>風化、黏腐</td></tr>
+  <tr><td>觸電（電）</td><td>不能</td><td>必須消除</td><td>觸電</td></tr>
+  <tr><td>冰封/石化（冰）</td><td>不能</td><td>不能消除</td><td>冰封、石化、凍結</td></tr>
+  <tr><td>起點GO（GO）</td><td>可以</td><td>照常消除，<b>一定要從這顆開始轉</b></td><td>GO 符石</td></tr>
+</table></div>
+<h3>新增自訂類別</h3>
+<p>遇到程式不認識的新符石：校正畫面按「＋類別」，或在 App 按「＋新增符石類別」。要設定三件事：</p>
+<ul class="plain">
+  <li><b>名稱</b>：例如「刺血符石」。</li>
+  <li><b>能不能碰</b>：可以碰／不能碰（碰到會停止或受傷）。</li>
+  <li><b>消除方式</b>：照常消除、必須消除、盡量消除、盡量不要消除、不能消除。</li>
+  <li>可勾選「<b>必須從這顆開始轉</b>」（像 GO 符石）。</li>
+</ul>
+<p>新增後，在校正畫面長按那顆珠子選這個類別，再按「儲存並學習」。設定錯了可以在 App 的「修改／刪除自訂類別」修改或刪除。</p>
+
+<!-- ================= 點擊規則 ================= -->
+<h2 id="rules">＋：點擊規則（戰鬥外自動操作）</h2>
+<p>自動執行時，戰鬥外的畫面（結算、再次挑戰、確認視窗）要靠點擊規則才會自動過。</p>
+<ol class="steps">
+  <li>停在要自動處理的畫面，按工作列的 <b>＋</b>。</li>
+  <li>選模式：<b>看到就點</b>（例如「再次挑戰」「確定」「出戰」），或<b>看到就停止</b>（例如「戰敗」「體力不足」）。</li>
+  <li>點一下畫面上的那個位置。之後出現一樣的畫面，自動執行就會幫你點，或停止並震動提醒。</li>
+</ol>
+<p>規則可以在 App 裡「刪除最後一條規則」「清除全部規則」，或在「管理學習資料」一條一條刪除。</p>
+
+<!-- ================= App 設定 ================= -->
+<h2 id="app">自轉珠 App 設定</h2>
+<figure id="fig-app">
+  <span class="tap-hint">點圖上的按鈕或格子看說明</span>
+  <div class="app">
+    <h4>自轉珠</h4>
+    <div>目前版本：build-37（v0.1.37）</div>
+    <div class="ok">● 自轉珠：已開啟、盤面已校正（6×5）</div>
+    <div class="agrid">
+      <div class="abtn">無障礙設定（已開啟）<span class="num">1</span></div><div class="abtn">允許受限設定</div>
+      <div class="abtn">模式：自動拖曳<span class="num">2</span></div><div class="abtn">自動讀王技能：開<span class="num">3</span></div>
+      <div class="abtn">每步 40 ms<span class="num">4</span></div><div class="abtn">轉珠時間 5 秒<span class="num">5</span></div>
+      <div class="abtn">品質：標準<span class="num">6</span></div><div class="abtn">8 方向<span class="num">7</span></div>
+    </div>
+    <div class="abtn" style="margin-top:6px">重設顏色與符石學習（已學 1331 格）<span class="num">8</span></div>
+    <div class="agrid"><div class="abtn">＋新增符石類別</div><div class="abtn">修改／刪除自訂類別</div>
+      <div class="abtn">刪除最後一條規則</div><div class="abtn">清除全部規則</div></div>
+    <div class="abtn" style="margin-top:6px">管理學習資料（一筆一筆刪除設定錯的）<span class="num">9</span></div>
+    <div class="abtn" style="margin-top:6px">清除所有記住的關卡</div>
+  </div>
+  <div class="tipbox" aria-live="polite"><span class="hint0">點任何一個設定，這裡會顯示說明。</span></div>
+  <figcaption>圖 4　自轉珠 App 主畫面</figcaption>
+</figure>
+<div class="tbl"><table>
+  <tr><th>編號</th><th>設定</th><th>說明</th></tr>
+  <tr><td><span class="legend-num">1</span></td><td>無障礙設定／允許受限設定</td><td>第一次使用時開啟權限，程式會帶你跳到正確的設定頁並提示要按哪裡。</td></tr>
+  <tr><td><span class="legend-num">2</span></td><td>模式</td><td>自動拖曳：自己轉。只顯示路徑：只在畫面上畫出路徑，你自己轉。</td></tr>
+  <tr><td><span class="legend-num">3</span></td><td>自動讀王技能</td><td>遇到沒看過的關卡，自動長按王讀取技能並設定條件。</td></tr>
+  <tr><td><span class="legend-num">4</span></td><td>每步</td><td>每移動一格的時間，預設 40 ms（最快）。轉出來跟預覽路徑不一樣（漏格、跑錯格）時，改成 50 或 70。</td></tr>
+  <tr><td><span class="legend-num">5</span></td><td>轉珠時間</td><td>遊戲允許的轉珠秒數。程式會把路徑長度用滿這段時間，並保留 0.4 秒緩衝。</td></tr>
+  <tr><td><span class="legend-num">6</span></td><td>品質</td><td>標準或高。高品質找得更好但計算較慢；常破不了的關卡會自動提高。</td></tr>
+  <tr><td><span class="legend-num">7</span></td><td>方向</td><td>8 方向（含斜轉）或 4 方向（只有上下左右）。</td></tr>
+  <tr><td><span class="legend-num">8</span></td><td>重設顏色與符石學習</td><td>清掉所有學過的顏色和符石樣子，從頭開始。</td></tr>
+  <tr><td><span class="legend-num">9</span></td><td>管理學習資料</td><td>一筆一筆刪除設定錯的資料：顏色範例、特殊符石樣子、記住的關卡、點擊規則。</td></tr>
+</table></div>
+<p>App 下方另有<b>手動模式</b>：自己排盤面（可選 6×5、6×6 等），按「求解」看最佳路徑，按「播放路徑」看動畫。</p>
+
+<!-- ================= FAQ ================= -->
+<h2 id="faq">常見問題</h2>
+<h3>按 ▶ 不會轉？</h3>
+<ul class="plain">
+  <li>盤面有認不出的格子：按「校」，點問號確認或修正，再按「儲存並學習」。</li>
+  <li>盤面還在動（落珠動畫）：等一下，程式要連續兩張截圖一樣才會轉。</li>
+  <li>格線沒對齊：按「校」重新對齊。</li>
+</ul>
+<h3>轉出來的路徑跟預覽不一樣？</h3>
+<p>手機跟不上速度。到 App 把「每步」改成 50 或 70 ms，路徑長度會自動調整。</p>
+<h3>怎麼確認裝的是最新版？</h3>
+<p>App 首頁、遊戲中的啟動提示、「關」面板第一行都會顯示 build 號碼。下載時請用帶號碼的檔名，例如 <kbd>tos-orb-solver-37.apk</kbd>，避免開到舊檔。</p>
+<h3>學過的資料不見了？</h3>
+<p>更新時先解除安裝會清空資料。之後請直接安裝新版覆蓋。</p>
+<h3>設定錯了怎麼辦？</h3>
+<p>App →「管理學習資料」，找到那一筆刪除。自訂類別在「修改／刪除自訂類別」。</p>
+</div>
+
+<script>
+// 產生示意盤面（純展示）
+(function () {
+  const C = "火水木光暗心";
+  const calib = [2,3,2,2,4,3, 2,5,5,3,1,2, 2,1,1,2,2,2, 1,1,2,2,2,5, 1,0,2,5,1,4];
+  const q = new Set([4,5,23,29]);
+  const edited = new Set([7]);
+  const ice = new Set([10]);
+  const b1 = document.getElementById("calib-board");
+  calib.forEach((c, i) => {
+    const d = document.createElement("div"); d.className = "cell";
+    d.innerHTML = `<i class="orb o${c}"></i><i class="lab${edited.has(i) ? " ed" : ""}">${C[c]}</i>` +
+      (q.has(i) ? '<i class="q">?</i>' : "") + (ice.has(i) ? '<i class="st">冰</i>' : "");
+    b1.appendChild(d);
+  });
+  const r = document.createElement("i"); r.className = "resize"; b1.appendChild(r);
+
+  const st = [1,3,1,5,4,1, 0,0,3,2,5,0, 4,3,4,2,2,5, 3,1,2,3,0,3, 5,2,4,1,4,0];
+  const mk = {0:"mk-shield",1:"mk-shield",6:"mk-shield",7:"mk-shield",3:"mk-burn",9:"mk-flame",11:"mk-hole",20:"mk-crack"};
+  const b2 = document.getElementById("stage-board");
+  st.forEach((c, i) => {
+    const d = document.createElement("div"); d.className = "cell" + (mk[i] ? " " + mk[i] : "");
+    d.innerHTML = `<i class="orb o${c}"></i>`;
+    if (i === 24) d.innerHTML += '<i class="circ" style="background:#00c853">起</i>';
+    if (i === 29) d.innerHTML += '<i class="circ" style="background:#d50000">終</i>';
+    if (i === 14) d.innerHTML += '<i class="circ" style="background:#2962ff;right:0;top:0">必</i>';
+    if (i === 16) d.innerHTML += '<i class="circ" style="background:#616161;right:0;top:0">禁</i>';
+    b2.appendChild(d);
+  });
+
+  // ---------- 互動說明 ----------
+  const TIPS = {
+    "⠿": "<b>⠿ 移動／收合</b>：按住拖曳可以移動工作列，位置會記住。點一下收合，只留 ⠿ ▶ ✕；再點一下展開。",
+    "▶": "<b>▶ 自動執行</b>：戰鬥中自己轉珠，戰鬥外照點擊規則自己點。執行中變成紅色 ■，再按一下停止。",
+    "■": "<b>■ 自動執行中</b>：按一下停止。",
+    "轉": "<b>轉</b>：只轉這一回合。會讀 NUM 盾數字、套用記住的關卡條件，轉一次就停。轉的時候按鈕變橘色。",
+    "＋": "<b>＋ 點擊規則</b>：教程式在戰鬥外自動按哪裡（看到就點），或看到什麼畫面就停止（看到就停止）。",
+    "校": "<b>校 校正盤面</b>：對齊格線、確認或修正認錯的珠子、標記特殊符石，按「儲存並學習」讓程式學起來。",
+    "關": "<b>關 關卡條件</b>：每次打開都從空白開始，照這隻王的盾設定，按「完成」照條件轉一回合。工作列上變黃色＝已認出記住的關卡。",
+    "✕": "<b>✕ 關閉</b>：2.5 秒內連按兩下關閉自轉珠。要再用，打開自轉珠 App 即可。",
+    "自動偵測": "<b>自動偵測</b>：自動找出盤面的位置，把格線對上去。",
+    "列數": "<b>列數</b>：切換盤面列數（5、6、7 列）。遇到 6×6 等特殊盤面時使用。",
+    "重新截圖": "<b>重新截圖</b>：盤面變了（例如動畫播完）時重新截一張再辨識。",
+    "＋類別": "<b>＋類別</b>：遇到程式不認識的新符石，新增一種類別（名稱、能不能碰、消除方式、是否必須當起點）。",
+    "儲存並學習": "<b>儲存並學習</b>：儲存格線位置，並把你確認、修改過的珠子學起來。之後遇到同樣的樣子會自動認出。",
+    "關閉": "<b>關閉</b>：不儲存，離開校正畫面。",
+    "拼圖盾": "<b>拼圖盾筆刷</b>：點格子標出盾的形狀（黃色）。第一批要用同一種顏色把這些格子全部消掉。同一關會記住。",
+    "燃燒": "<b>燃燒(不碰)筆刷</b>：這些位置不能經過（燃燒、地獄火、雷射等地形），顯示紅色方塊。",
+    "火焰區": "<b>火焰區(終點)筆刷</b>：最後一步必須停在其中一格，顯示橘色圓圈。",
+    "黑洞": "<b>黑洞(不停)筆刷</b>：最後一步不能停在這格，顯示黑色圓點。",
+    "裂痕": "<b>裂痕筆刷</b>：回合結束時停在這個位置的珠子不能被消除。可以經過，跟珠子種類無關，顯示 ✕。",
+    "起點": "<b>起點(綠)筆刷</b>：綠漩渦，一定要從這格出發。",
+    "終點": "<b>終點(紅)筆刷</b>：紅漩渦，最後一步一定要停在這格。",
+    "必消(點珠)": "<b>必消(點珠)筆刷</b>：點到的這顆珠這回合一定要消掉，顯示藍色「必」。只用這一回合，不會記住。",
+    "不消(點珠)": "<b>不消(點珠)筆刷</b>：點到的這顆珠這回合不能消，顯示灰色「禁」。只用這一回合，不會記住。",
+    "Combo盾": "<b>Combo盾</b>：整回合（含疊珠）至少 X combo。每按一下：無 → 5 → 6 → … → 12。",
+    "首消Combo": "<b>首消Combo</b>：第一批「剛好」X combo。每按一下：無 → 1 → 2 → … → 10。設定時會自動打開「首消每組3顆」。",
+    "首消每組3顆": "<b>首消每組3顆</b>：第一批每一組都只能剛好 3 顆，不能有 4 顆以上連成一組。允許 4 顆連珠的關卡可以關掉。",
+    "首消屬性盾": "<b>首消屬性盾</b>：第一批至少 X 組屬性符石，心珠不算。可選 4～8。",
+    "NUM盾": "<b>NUM盾</b>：第一批消除「剛好」X 粒符石，疊珠不算。可選 10～20。數字每回合會變，按 ▶ 或「轉」時程式會自己讀。",
+    "黏手路徑": "<b>黏手路徑</b>：碰過的格子不能再碰，路徑不能重複。",
+    "火焰路徑": "<b>火焰路徑</b>：不要重踩剛走過的格子。",
+    "清除全部": "<b>清除全部</b>：把面板上的設定全部清空。",
+    "取消": "<b>取消</b>：不儲存，關閉面板。",
+    "完成": "<b>完成</b>：記住這一關的條件，並照條件只轉這一回合（不會開始連續自動執行）。",
+    "無障礙設定": "<b>無障礙設定</b>：自轉珠靠無障礙服務截圖和拖曳。第一次使用要打開，程式會帶你跳到正確的設定頁。",
+    "允許受限設定": "<b>允許受限設定</b>：Android 13 以上從網路安裝的 App 要先允許，才能打開無障礙設定。",
+    "模式": "<b>模式</b>：自動拖曳＝程式自己轉；只顯示路徑＝只在畫面上畫出路徑，你自己轉。",
+    "自動讀王技能": "<b>自動讀王技能</b>：遇到沒看過的關卡，自動長按王讀取技能，設定看得懂的條件並記住。",
+    "每步": "<b>每步</b>：每移動一格的時間，預設 40 ms（最快）。轉出來跟預覽不一樣時改成 50 或 70。",
+    "轉珠時間": "<b>轉珠時間</b>：遊戲允許的轉珠秒數。程式會把路徑用滿這段時間，保留 0.4 秒緩衝。",
+    "品質": "<b>品質</b>：標準或高。高品質找得更好但計算較慢；常破不了的關卡會自動提高。",
+    "8 方向": "<b>方向</b>：8 方向（含斜轉）或 4 方向（只有上下左右）。",
+    "重設顏色與符石學習": "<b>重設顏色與符石學習</b>：清掉所有學過的顏色和符石樣子，從頭開始。一般不需要按。",
+    "＋新增符石類別": "<b>＋新增符石類別</b>：新增程式不認識的符石種類。",
+    "修改／刪除自訂類別": "<b>修改／刪除自訂類別</b>：修改規則、只清除學過的樣子，或刪除整個類別。",
+    "刪除最後一條規則": "<b>刪除最後一條規則</b>：刪掉最後新增的點擊規則。",
+    "清除全部規則": "<b>清除全部規則</b>：刪掉所有點擊規則。",
+    "管理學習資料": "<b>管理學習資料</b>：一筆一筆刪除設定錯的資料：顏色範例、特殊符石樣子、記住的關卡、點擊規則。",
+    "清除所有記住的關卡": "<b>清除所有記住的關卡</b>：忘記所有關卡的條件。"
+  };
+  const ORB = "火水木光暗心";
+  function textOf(el) {
+    let t = "";
+    el.childNodes.forEach(n => { if (n.nodeType === 3) t += n.textContent; });
+    return t.trim();
+  }
+  function tipFor(el) {
+    const t = textOf(el);
+    const keys = Object.keys(TIPS).sort((a, b) => b.length - a.length);
+    const k = keys.find(k => t.startsWith(k));
+    return k ? TIPS[k] : null;
+  }
+  document.querySelectorAll("figure .bb, figure .pbtn, figure .abtn").forEach(el => {
+    const tip = tipFor(el); if (tip) el.dataset.tip = tip;
+  });
+  document.querySelectorAll("figure .chips").forEach(row => {
+    const label = textOf(row);
+    row.querySelectorAll(".chip").forEach(ch => {
+      const c = ch.textContent.trim();
+      ch.dataset.tip = label.startsWith("必消")
+        ? `<b>必消「${c}」</b>：點亮後，這回合一定要消到至少一組${c}珠（多屬性盾，例如水火盾）。藍色＝已選。`
+        : `<b>首消不能消「${c}」</b>：點亮後，第一批不能消${c}珠（例如「${c}連擊零化」），疊珠不算。`;
+    });
+  });
+  b1.querySelectorAll(".cell").forEach((d, i) => {
+    const c = ORB[calib[i]];
+    d.dataset.tip = q.has(i)
+      ? `<b>有問號的${c}珠</b>：程式判斷是${c}但沒把握。點一下＝確認正確，所有有問號的${c}珠會一起確認。判斷錯了就再點一次換顏色。`
+      : edited.has(i) ? `<b>黃框</b>：這顆是你確認或改過的，按「儲存並學習」後會學起來。`
+      : ice.has(i) ? `<b>「冰」標籤</b>：長按珠子切換類別，這顆被標成冰封／石化（不能碰、不能消）。`
+      : `<b>${c}珠</b>：點一下換顏色（火→水→木→光→暗→心），長按切換符石類別。`;
+  });
+  r.dataset.tip = "<b>縮放圓點</b>：拖這個圓點放大縮小格線，讓格線對齊遊戲的盤面。";
+  const MK = {"mk-shield": TIPS["拼圖盾"], "mk-burn": TIPS["燃燒"], "mk-flame": TIPS["火焰區"], "mk-hole": TIPS["黑洞"], "mk-crack": TIPS["裂痕"]};
+  b2.querySelectorAll(".cell").forEach((d, i) => {
+    const m = Object.keys(MK).find(k => d.classList.contains(k));
+    if (i === 24) d.dataset.tip = TIPS["起點"];
+    else if (i === 29) d.dataset.tip = TIPS["終點"];
+    else if (i === 14) d.dataset.tip = TIPS["必消(點珠)"];
+    else if (i === 16) d.dataset.tip = TIPS["不消(點珠)"];
+    else if (m) d.dataset.tip = MK[m];
+    else d.dataset.tip = "<b>一般格子</b>：先選一支筆刷，再點格子就會標上；再點一次取消。";
+  });
+  document.querySelectorAll("[data-tip]").forEach(el => {
+    el.tabIndex = 0; el.setAttribute("role", "button");
+    const show = () => {
+      const fig = el.closest("figure"); const box = fig.querySelector(".tipbox");
+      fig.querySelectorAll(".picked").forEach(x => x.classList.remove("picked"));
+      el.classList.add("picked"); box.innerHTML = el.dataset.tip;
+    };
+    el.addEventListener("click", show);
+    el.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); show(); } });
+  });
+})();
+</script>

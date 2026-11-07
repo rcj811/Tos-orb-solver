@@ -1,0 +1,34 @@
+一般盤      rows=5 | combo=7.595 first=4.53 len=16.7 ms=62 wall=6s
+觸電x2       rows=5 | combo=7.220 first=4.05 len=18.3 ms=55 wall=6s | 達成率=83% | 可行盤中達成=88%
+風化x3       rows=5 | combo=7.305 first=4.08 len=17.5 ms=53 wall=5s
+冰封x3       rows=5 | combo=6.295 first=4.28 len=17.8 ms=45 wall=5s
+裂痕x3       rows=5 | combo=7.285 first=3.92 len=18.5 ms=54 wall=5s
+燃燒x3       rows=5 | combo=7.335 first=4.26 len=17.4 ms=53 wall=5s
+黏手路徑   rows=5 | combo=6.880 first=3.98 len=12.2 ms=26 wall=3s
+火焰路徑   rows=5 | combo=7.535 first=4.39 len=17.4 ms=56 wall=6s
+火焰區x3    rows=5 | combo=7.470 first=4.49 len=19.4 ms=61 wall=6s | 達成率=100% | 可行盤中達成=100%
+黑洞x3       rows=5 | combo=7.695 first=4.54 len=17.5 ms=64 wall=6s | 達成率=100% | 可行盤中達成=100%
+綠紅漩渦   rows=5 | combo=7.110 first=4.46 len=20.8 ms=58 wall=6s | 達成率=100% | 可行盤中達成=100%
+變形魔球x3 rows=5 | combo=7.985 first=4.67 len=19.1 ms=63 wall=6s
+Combo盾≥8   rows=5 | combo=7.590 first=4.53 len=16.7 ms=61 wall=6s | 達成率=56% | 可行盤中達成=74%
+首消盾≥5  rows=5 | combo=7.550 first=5.76 len=17.8 ms=56 wall=6s | 達成率=100% | 可行盤中達成=100%
+固定3Combo   rows=5 | combo=7.255 first=3.00 len=17.7 ms=61 wall=6s | 達成率=100% | 可行盤中達成=100%
+反心珠首消 rows=5 | combo=7.505 first=3.73 len=17.8 ms=62 wall=6s | 達成率=100% | 可行盤中達成=100%
+三屬性盾   rows=5 | combo=7.580 first=4.42 len=17.3 ms=61 wall=6s | 達成率=70% | 可行盤中達成=94%
+五屬性盾   rows=5 | combo=7.585 first=4.33 len=17.1 ms=62 wall=6s | 達成率=50% | 可行盤中達成=88%
+拼圖2x2      rows=5 | combo=6.355 first=4.34 len=20.4 ms=58 wall=6s | 達成率=77% | 可行盤中達成=77%
+拼圖橫5     rows=5 | combo=6.540 first=3.66 len=21.3 ms=59 wall=6s | 達成率=92% | 可行盤中達成=92%
+拼圖L5       rows=5 | combo=6.490 first=4.02 len=21.1 ms=59 wall=6s | 達成率=89% | 可行盤中達成=89%
+拼圖十字   rows=5 | combo=6.440 first=4.07 len=21.0 ms=59 wall=6s | 達成率=90% | 可行盤中達成=90%
+拼圖3x3      rows=5 | combo=6.880 first=4.29 len=18.1 ms=59 wall=6s | 達成率=12% | 可行盤中達成=55%
+觸電+黏手+首消4 rows=5 | combo=6.125 first=4.22 len=11.8 ms=20 wall=2s | 達成率=68% | 可行盤中達成=72%
+觸電+火焰區+三屬性 rows=5 | combo=7.235 first=4.07 len=19.2 ms=54 wall=5s | 達成率=48% | 可行盤中達成=69%
+## 版面
+一般盤6x5   rows=5 | combo=7.630 first=4.40 len=16.4 ms=69 wall=3s
+一般盤6x5+多樣性 rows=5 | combo=7.710 first=4.42 len=17.4 ms=75 wall=4s
+一般盤6x6   rows=6 | combo=9.440 first=4.59 len=19.7 ms=101 wall=5s
+一般盤6x6+多樣性 rows=6 | combo=9.520 first=4.69 len=21.1 ms=106 wall=5s
+一般盤6x7   rows=7 | combo=11.100 first=5.21 len=24.2 ms=134 wall=7s
+一般盤6x7+多樣性 rows=7 | combo=11.400 first=5.49 len=27.1 ms=143 wall=7s
+一般盤6x8   rows=8 | combo=12.860 first=5.52 len=26.4 ms=176 wall=9s
+一般盤6x8+多樣性 rows=8 | combo=13.110 first=5.84 len=29.4 ms=184 wall=9s
