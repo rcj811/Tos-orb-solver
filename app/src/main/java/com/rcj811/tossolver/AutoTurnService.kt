@@ -521,7 +521,7 @@ class AutoTurnService : AccessibilityService() {
                 solveAndAct(rec, geo) { ok -> finishOnce(if (ok) null else "拖曳被中斷") }
             }
             // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
-            if (forced != null) go() else withNum(frame, geo) { go() }
+            if (forced != null && forced.firstOrbsExact > 0) go() else withNum(frame, geo) { go() }
         }
     }
 
@@ -859,6 +859,24 @@ class AutoTurnService : AccessibilityService() {
 
     // ---------------- 新增點擊規則 ----------------
 
+    /** 等技能視窗關掉、盤面靜止（連續兩張一樣）後，照 rules 轉這一回合；30 秒內沒看到盤面就放棄 */
+    private fun waitBoardThenTurn(rules: StageRules, since: Long, last: IntArray?) {
+        if (running || calibRoot != null || recordView != null || stageRoot != null) return
+        if (SystemClock.uptimeMillis() - since > 30_000) { toast("30 秒內沒看到盤面，已取消自動轉珠（可按「轉」）"); return }
+        main.postDelayed({
+            if (busy || running) { waitBoardThenTurn(rules, since, last); return@postDelayed }
+            captureClean { frame ->
+                if (frame == null) { waitBoardThenTurn(rules, since, null); return@captureClean }
+                val geo = settings.geometry
+                val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
+                val board = OrbRecognizer.maskedBoard(rec)
+                val ready = rec.unknownCount() <= OrbRecognizer.maxUnknown(geo.cells)
+                if (ready && last != null && OrbRecognizer.sameMasked(board, last)) onOnceTap(rules)
+                else waitBoardThenTurn(rules, since, if (ready) board else null)
+            }
+        }, 700)
+    }
+
     private fun startRecordRule() {
         if (calibRoot != null || recordView != null || stageRoot != null || busy) return
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
@@ -868,7 +886,24 @@ class AutoTurnService : AccessibilityService() {
             busy = false
             updateBar()
             if (frame == null) { toast("截圖失敗"); return@captureClean }
-            showRecordOverlay(frame)
+            val geo = if (settings.hasGeometry) settings.geometry else null
+            val sig = geo?.let { StageMatcher.signature(frame, it) }
+            if (sig == null) { showRecordOverlay(frame); return@captureClean }
+            // 畫面上有王的技能卡（長按王打開）：讀卡片、自動配置過關條件，關掉卡片後自動轉這一回合
+            busy = true
+            updateBar("…")
+            SkillOcr.read(frame) { text ->
+                busy = false
+                updateBar()
+                val parse = SkillParser.parse(text ?: "")
+                if (!parse.found) { showRecordOverlay(frame); return@read }
+                onBossRead(sig, parse, auto = false)
+                val list = presetStore.load()
+                val (idx, _) = StageMatcher.best(sig, list)
+                val rules = if (idx >= 0) StageRules().apply { copyFrom(list[idx].rules) } else parse.rules
+                toast("已依技能卡配置：${rules.summary()}\n關掉技能視窗後會自動轉珠")
+                waitBoardThenTurn(rules, SystemClock.uptimeMillis(), null)
+            }
         }
     }
 
