@@ -524,13 +524,9 @@ class AutoTurnService : AccessibilityService() {
             val go = {
                 val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(feasColors(rec))
                 // 條件在這盤做不到：照樣轉，用最接近條件的轉法（不要停住不動）
-                if (why != null && strictTurn) {
-                    alertManual("$why，沒有轉珠（「關」的條件要嚴格做到）")
-                    finishOnce(null)
-                } else {
-                    if (why != null) toast("$why，照最接近的轉法轉")
-                    solveAndAct(rec, geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "拖曳被中斷") }
-                }
+                // 「關」設定的條件：衝突檢查在 solveAndAct 裡（會說出哪裡衝突）
+                if (why != null && !strictTurn) toast("$why，照最接近的轉法轉")
+                solveAndAct(rec, geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "拖曳被中斷") }
             }
             // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
             if (forced != null && forced.firstOrbsExact > 0) go() else withNum(frame, geo) { go() }
@@ -760,6 +756,16 @@ class AutoTurnService : AccessibilityService() {
         // 這關有電擊符石：認不出的珠多半是被閃電特效蓋住的電擊符石 → 用最可能的顏色，不碰、必須消
         if (stage.unsureElec) for (i in cells.indices) if (rec.isUnknown(i)) cells[i] = rec.colors[i] or 0x50
         stage.applyOrbMarks(cells)   // 自點必消 / 不消（只有按「完成」轉這一盤時才會有）
+        // 「關」的條件：真的互相衝突、這盤不可能做到 → 不轉，並說出哪裡衝突
+        if (strictTurn && !stage.isEmpty()) {
+            val bad = stage.conflicts(cells, feasColors(rec))
+            if (bad.isNotEmpty()) {
+                lastGoalsOk = false
+                alertManual("條件衝突，沒有轉珠：\n" + bad.joinToString("\n") { "・$it" })
+                done(false)
+                return
+            }
+        }
         val presetIdx = activePreset
         val hardStage = presetIdx in presets.indices && presets[presetIdx].hard
         // 自我學習：這關常常破不了 → 自動提高搜尋品質
@@ -807,13 +813,7 @@ class AutoTurnService : AccessibilityService() {
                     if (!wasHard && p.hard) toast("這關常常破不了，之後會自動提高搜尋品質")
                 }
                 // 找不到完全符合條件的轉法：照樣轉最接近的（求解器已把條件差距算進分數），只提示不停住
-                // 「關」設定的條件要嚴格執行：找不到完全符合的轉法就不轉，告訴你哪裡做不到
-                if (!lastGoalsOk && strictTurn) {
-                    lastNoMove = false
-                    alertManual("這盤找不到完全符合「${stage.summary()}」的轉法，沒有轉珠（可用技能轉珠後再按一次，或改條件）")
-                    done(false)
-                    return@post
-                }
+                // 條件沒有衝突、只是沒找到完全符合的轉法（沒把握）：照最接近的轉，不停住
                 if (!lastGoalsOk) toast("這盤沒找到完全符合「${stage.summary()}」的轉法，照最接近的轉")
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)

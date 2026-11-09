@@ -151,6 +151,45 @@ class StageRules {
      * 首消條件在這個盤面「數學上」是否可能達成（首消不受天降影響，所以上限是精確的）。
      * colors：每格珠種，不能消除的格子給 -1。回傳 null = 可能；否則回傳原因。
      */
+    /**
+     * 條件之間（或條件和這一盤）真的衝突、不可能同時做到的地方；沒有衝突回傳空清單。
+     * cells：求解器用的格子（低 3 bits 珠種，0x40 = 不能碰、0x20 = 不能消）；colors：可消的珠種（不能消給 -1）。
+     */
+    fun conflicts(cells: IntArray, colors: IntArray): List<String> {
+        val out = ArrayList<String>()
+        val n = minOf(cells.size, MAX_CELLS)
+        fun pos(i: Int) = "第 ${i / 6 + 1} 列第 ${i % 6 + 1} 格"
+        fun noTouch(i: Int) = i in 0 until n && (cellFlags[i] and NO_TOUCH != 0 || cells[i] and 0x40 != 0)
+        if (green >= n || red >= n) out.add("起點或終點超出盤面")
+        if (green in 0 until n && noTouch(green)) out.add("起點（綠）設在${pos(green)}，但那格不能碰（燃燒地形或不能碰的珠），無法從那裡出發")
+        if (red in 0 until n) {
+            if (noTouch(red)) out.add("終點（紅）設在${pos(red)}，但那格不能碰，無法停在那裡")
+            if (cellFlags[red] and BLACK_HOLE != 0) out.add("終點（紅）設在${pos(red)}，但那格是黑洞（不能停）")
+            if (count(FLAME_END) > 0 && cellFlags[red] and FLAME_END == 0) out.add("終點（紅）設在${pos(red)}，但最後一步必須停在火焰區，兩個條件矛盾")
+        }
+        if (count(FLAME_END) > 0 && (0 until n).none { cellFlags[it] and FLAME_END != 0 && !noTouch(it) && cellFlags[it] and BLACK_HOLE == 0 })
+            out.add("火焰區的格子都不能碰或是黑洞，最後一步沒有地方可以停")
+        for (i in 0 until n) {
+            val f = cellFlags[i]
+            if (f and SHIELD != 0) {
+                if (f and CRACK != 0) out.add("${pos(i)} 同時是拼圖盾和裂痕：拼圖盾要消掉，裂痕不能消")
+                if (f and NO_ORB != 0) out.add("${pos(i)} 同時是拼圖盾和「不消」的珠")
+                if (cells[i] and 0x60 == 0x60) out.add("${pos(i)} 是拼圖盾，但那顆珠不能碰也不能消（冰封／石化）")
+            }
+            if (f and MUST_ORB != 0 && f and CRACK != 0) out.add("${pos(i)} 標了必消，但那格是裂痕（不能消）")
+        }
+        // 拼圖盾：要用同一種顏色鋪滿所有盾格，盤面上至少要有那麼多顆同色、可以消的珠
+        val shieldN = count(SHIELD)
+        if (shieldN > 0) {
+            val cnt = IntArray(6)
+            for (c in colors) if (c in 0..5 && (antiMask shr c and 1) == 0) cnt[c]++
+            val most = cnt.maxOrNull() ?: 0
+            if (most < maxOf(3, shieldN)) out.add("拼圖盾有 $shieldN 格，要同一種顏色鋪滿，但這盤同色可消的珠最多只有 $most 顆")
+        }
+        firstBatchImpossible(colors)?.let { out.add(it) }
+        return out
+    }
+
     fun firstBatchImpossible(colors: IntArray): String? {
         val cnt = IntArray(6)
         for (c in colors) if (c in 0..5 && (antiMask shr c and 1) == 0) cnt[c]++

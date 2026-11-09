@@ -4,6 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.rcj811.tossolver.StageRules.Companion.CRACK
+import com.rcj811.tossolver.StageRules.Companion.FLAME_END
+import com.rcj811.tossolver.StageRules.Companion.NO_TOUCH
+import com.rcj811.tossolver.StageRules.Companion.SHIELD
 
 class StageRulesTest {
 
@@ -120,6 +124,29 @@ class StageRulesTest {
         // 4 combo × 3 顆 = 12 粒，跟 NUM 15 矛盾
         assertTrue(StageRules().apply { firstExact = 4; first3Only = true; firstOrbsExact = 15 }.firstBatchImpossible(IntArray(30) { it % 6 }) != null)
         assertEquals(null, StageRules().apply { firstExact = 4; first3Only = true; firstOrbsExact = 12 }.firstBatchImpossible(IntArray(30) { it % 6 }))
+    }
+
+    @Test
+    fun conflictsAreExplained() {
+        val board = IntArray(30) { it % 6 }
+        // 拼圖盾 2 格＋起點＋終點：沒有衝突（就算這盤沒把握，也照樣轉）
+        val ok = StageRules().apply { toggle(7, SHIELD); toggle(22, SHIELD); green = 0; red = 29 }
+        assertTrue(ok.conflicts(board, board).isEmpty())
+        // 起點設在燃燒格
+        val burn = StageRules().apply { toggle(0, NO_TOUCH); green = 0 }
+        assertTrue(burn.conflicts(board, board).single().contains("起點"))
+        // 拼圖盾格又是裂痕
+        val crack = StageRules().apply { toggle(3, SHIELD); toggle(3, CRACK) }
+        assertTrue(crack.conflicts(board, board).any { it.contains("裂痕") })
+        // 終點不在火焰區
+        val flame = StageRules().apply { toggle(10, FLAME_END); red = 29 }
+        assertTrue(flame.conflicts(board, board).any { it.contains("火焰區") })
+        // 拼圖盾 8 格，但每色只有 5 顆
+        val big = StageRules().apply { for (i in 0 until 8) toggle(i, SHIELD) }
+        assertTrue(big.conflicts(board, board).any { it.contains("同色可消的珠最多只有 5 顆") })
+        // 起點的珠不能碰（冰封）
+        val cells = board.copyOf().also { it[0] = it[0] or 0x60 }
+        assertTrue(StageRules().apply { green = 0 }.conflicts(cells, board).any { it.contains("不能碰") })
     }
 
     @Test
