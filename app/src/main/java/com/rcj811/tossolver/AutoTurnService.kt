@@ -116,6 +116,8 @@ class AutoTurnService : AccessibilityService() {
     private var running = false
     private var lastSeen: IntArray? = null
     private var stableCount = 0
+    private val CAPTURE_FAIL = "截圖失敗。解決：確認手機設定裡自轉珠的無障礙服務還開著；若剛關閉過，打開自轉珠 App 重新開啟"
+    private var waitingSince = 0L    // 盤面看得到、但一直沒靜止的開始時間（有特效一直在動時，等太久就照樣轉）
     private var lastActed: IntArray? = null
     private var lastActedAt = 0L
     private var lastProgressAt = 0L
@@ -320,7 +322,10 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun checkReady(): Boolean {
-        if (calibRoot != null || recordView != null || stageRoot != null) return false
+        if (calibRoot != null || recordView != null || stageRoot != null) {
+            toast("「校」或「關」的面板還開著，請先按面板上的「關閉／完成／取消」再操作")
+            return false
+        }
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return false }
         if (!settings.hasGeometry) {
             toast("第一次使用：先校正盤面位置")
@@ -506,12 +511,14 @@ class AutoTurnService : AccessibilityService() {
     private var strictTurn = false
 
     private fun onOnceTap(forced: StageRules? = null) {
-        if (running || busy || !checkReady()) return
+        if (running) { toast("自動執行中，「轉」不能同時用。先按紅色 ■ 停止，再按「轉」"); return }
+        if (busy) { toast("正在計算或轉珠，請等這一回合結束再按"); return }
+        if (!checkReady()) return
         strictTurn = forced != null
         busy = true
         updateBar("…")
         captureClean { frame ->
-            if (frame == null) { finishOnce("截圖失敗"); return@captureClean }
+            if (frame == null) { finishOnce(CAPTURE_FAIL); return@captureClean }
             val geo = settings.geometry
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
@@ -571,7 +578,8 @@ class AutoTurnService : AccessibilityService() {
 
     private fun toggleAuto() {
         if (running) { stopAuto("已停止自動執行（轉珠 $turnsDone 回合、點擊 $rulesTapped 次）"); return }
-        if (busy || !checkReady()) return
+        if (busy) { toast("正在計算或轉珠，請等這一回合結束再按 ▶"); return }
+        if (!checkReady()) return
         rules = ruleStore.load()
         running = true
         lastSeen = null; stableCount = 0; lastActed = null
@@ -645,7 +653,11 @@ class AutoTurnService : AccessibilityService() {
         if (ready && !alreadyDone) {
             if (OrbRecognizer.sameMasked(board, lastSeen)) stableCount++ else { stableCount = 1 }
             lastSeen = board
-            if (stableCount >= needStable) {
+            if (waitingSince == 0L) waitingSince = now
+            // 盤面上有一直在動的特效（閃電、發光），連續兩張永遠不一樣：等 5 秒後照最新的盤面轉，不停住
+            val waitedTooLong = now - waitingSince > 5000
+            if (stableCount >= needStable || waitedTooLong) {
+                waitingSince = 0L
                 lastActed = board
                 lastActedAt = now
                 lastProgressAt = now
@@ -698,14 +710,14 @@ class AutoTurnService : AccessibilityService() {
             next(500)
             return
         }
-        if (!ready) { stableCount = 0; lastSeen = null }
+        if (!ready) { stableCount = 0; lastSeen = null; waitingSince = 0L }
 
         // 2) 戰鬥外：先看停止畫面（戰敗、體力不足…），再依點擊規則自動點擊
         if (!ready && rules.isNotEmpty()) {
             val stopIdx = TapMatcher.firstMatch(frame, rules) { i -> rules[i].action != TapRule.ACTION_STOP }
             if (stopIdx >= 0) {
                 busy = false
-                alertManual("看到停止畫面（規則 ${stopIdx + 1}），已停止自動執行，請手動處理")
+                alertManual("看到你設定的停止畫面（規則 ${stopIdx + 1}），已停止自動執行。\n解決：處理好畫面後按 ▶ 繼續；不想再停可到 App「管理學習資料」刪除這條規則")
                 return
             }
             val idx = TapMatcher.firstMatch(frame, rules) { i ->
@@ -737,12 +749,12 @@ class AutoTurnService : AccessibilityService() {
         val noBoardMs = if (rules.isEmpty()) 8_000L else 30_000L
         if (!ready && now - lastBoardAt > noBoardMs && now - lastActionAt > noBoardMs) {
             busy = false
-            stopAuto("沒有偵測到轉珠盤面，自動轉珠已暫停（回到戰鬥後按 ▶ 繼續）")
+            stopAuto("沒有偵測到轉珠盤面（$unknown 格認不出來），自動轉珠已暫停。\n解決：回到戰鬥畫面後按 ▶；如果盤面明明在，按「校」對齊格線、點問號確認後再按 ▶")
             return
         }
         if (now - lastProgressAt > IDLE_STOP_MS) {
             busy = false
-            stopAuto("3 分鐘沒有可轉的盤面或可點的畫面，已停止自動執行")
+            stopAuto("3 分鐘沒有可轉的盤面，已停止自動執行。\n解決：回到戰鬥畫面後按 ▶；如果盤面明明在，按「校」重新對齊格線")
             return
         }
         next(600)
@@ -761,7 +773,8 @@ class AutoTurnService : AccessibilityService() {
             val bad = stage.conflicts(cells, feasColors(rec))
             if (bad.isNotEmpty()) {
                 lastGoalsOk = false
-                alertManual("條件衝突，沒有轉珠：\n" + bad.joinToString("\n") { "・$it" })
+                alertManual("條件衝突，沒有轉珠：\n" + bad.joinToString("\n") { "・$it" } +
+                    "\n解決：按「關」修改上面列出的條件（或用技能轉珠補足）後再按「完成」")
                 done(false)
                 return
             }
@@ -776,7 +789,7 @@ class AutoTurnService : AccessibilityService() {
         val goCell = rec.startCell()
         val ruleInts = stage.toInts(goCell)
         val hasStage = !stage.isEmpty()
-        worker.execute {
+        worker.execute { try {
             var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
             // 關卡條件沒全部符合：用更大的搜尋範圍再找一次
             // （嚴格模式再加大一次，盡量找到完全符合的轉法）
@@ -793,9 +806,10 @@ class AutoTurnService : AccessibilityService() {
                 if (!res.found || res.dirs.isEmpty()) {
                     // 消不出任何 combo（例如整盤冰封）：移動一步結束回合；連一步都不能動 → 交給使用者
                     val pass = passMove(cells, geo.rows, goCell)
+                    if (pass != null && hasStage) toast("找不到符合條件、又能消出 combo 的路徑，這回合只移動一步結束（沒把握也不停住）")
                     if (pass == null) {
                         lastNoMove = true
-                        toast("盤面全部是不能碰的珠子，沒辦法轉")
+                        toast("盤面全部是不能碰的珠子，沒辦法轉。解決：用技能解除封鎖後再按「轉」；如果是認錯了，按「校」把珠子改回普通")
                         done(false)
                         return@post
                     }
@@ -830,7 +844,13 @@ class AutoTurnService : AccessibilityService() {
                     done(true)
                 }
             }
-        }
+        } catch (t: Throwable) {
+            // 計算時出錯：不要卡住，告訴使用者並結束這一回合
+            main.post {
+                toast("計算轉法時出錯（${t.javaClass.simpleName}），這一回合沒有轉。解決：再按一次「轉」；一直出錯請按「校」重新校正")
+                done(false)
+            }
+        } }
     }
 
     /** 找一步合法的移動（兩顆都能碰的相鄰珠子），用來在消不出 combo 時結束回合 */
@@ -906,14 +926,15 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun startRecordRule() {
-        if (calibRoot != null || recordView != null || stageRoot != null || busy) return
+        if (busy) { toast("正在計算或轉珠，請等這一回合結束再按「＋」"); return }
+        if (calibRoot != null || recordView != null || stageRoot != null) { toast("請先關閉「校」或「關」的面板，再按「＋」"); return }
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
         stopAuto(null)
         busy = true
         captureClean { frame ->
             busy = false
             updateBar()
-            if (frame == null) { toast("截圖失敗"); return@captureClean }
+            if (frame == null) { toast(CAPTURE_FAIL); return@captureClean }
             if (!settings.hasGeometry) { toast("請先按「校」校正盤面位置"); return@captureClean }
             val sig = StageMatcher.signature(frame, settings.geometry)
             if (sig == null) { toast("盤面上方空間不足，無法記住這一關"); return@captureClean }
@@ -1027,7 +1048,7 @@ class AutoTurnService : AccessibilityService() {
         captureClean { frame ->
             busy = false
             updateBar()
-            if (frame == null) { toast("截圖失敗"); return@captureClean }
+            if (frame == null) { toast(CAPTURE_FAIL); return@captureClean }
             val geo = settings.geometry
             val sig = StageMatcher.signature(frame, geo)
             if (sig == null) { toast("盤面上方空間不足，無法記住這一關"); return@captureClean }
@@ -1257,7 +1278,7 @@ class AutoTurnService : AccessibilityService() {
         captureClean { frame ->
             busy = false
             updateBar()
-            if (frame == null) { toast("截圖失敗"); return@captureClean }
+            if (frame == null) { toast(CAPTURE_FAIL); return@captureClean }
             calibFrame = frame
             showCalibration(frame)
         }
@@ -1399,7 +1420,7 @@ class AutoTurnService : AccessibilityService() {
                     calibFrame = frame
                     recognizeInCalibration()
                 } else {
-                    toast("截圖失敗")
+                    toast(CAPTURE_FAIL)
                 }
             }
         }, 120)
