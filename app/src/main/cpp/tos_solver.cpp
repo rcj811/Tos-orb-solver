@@ -90,7 +90,7 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 
 struct Info {
     int combos = 0, first = 0, firstOrbs = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
-    int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0;
+    int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0, shieldHit = 0;
     bool shieldBroken = false;
     Board after;
 };
@@ -103,7 +103,7 @@ Info resolve(Board b) {
     if (RU.shieldN) {
         int cnt[8] = {};
         for (int i = 0; i < N; i++) if (RU.shield[i] && b.c[i] != EMPTY) cnt[col(b.c[i])]++;
-        in.shieldCover = *std::max_element(cnt, cnt + 8);
+        in.shieldCover = X.cfg.shieldColor >= 0 ? cnt[X.cfg.shieldColor] : *std::max_element(cnt, cnt + 8);
     }
     for (int round = 0;; round++) {
         int tm = 0, attr = 0, c = findCombos(b, mark, &tm, &attr);
@@ -120,6 +120,9 @@ Info resolve(Board b) {
             in.firstOrbs = orbs;
             in.firstAttr = attr;
             in.firstMask = tm;
+            // 盾格上（指定顏色）的珠在第一批被消掉的數量：引導搜尋把盾格的珠真的消掉
+            if (RU.shieldN) for (int i = 0; i < N; i++)
+                if (RU.shield[i] && mark[i] && (X.cfg.shieldColor < 0 || col(b.c[i]) == X.cfg.shieldColor)) in.shieldHit++;
             if (RU.shieldN && in.shieldCover == RU.shieldN) {
                 in.shieldBroken = true;
                 for (int i = 0; i < N; i++) if (RU.shield[i] && !mark[i]) { in.shieldBroken = false; break; }
@@ -229,7 +232,8 @@ void score(State& s) {
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
     if (RU.shieldN)
         w += (in.shieldCover == RU.shieldN ? 2800 + RU.shieldN * 300
-                                           : in.shieldCover * in.shieldCover * cfg.shieldGuide);
+                                           : in.shieldCover * in.shieldCover * cfg.shieldGuide)
+           + in.shieldHit * 250;
     if (endOk(s.pos)) w += 300;
     s.ok = goalsOk(in, s.pos);
     if (s.ok) w += 20000;
@@ -419,6 +423,21 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
             State cand;
             if (beamSearch(b, cand) && better(cand, best)) best = cand;
         }
+        X.cfg.beam = cfg.beam;
+    }
+    // 拼圖盾還沒破：逐一指定顏色（盤面上該色夠多的）再找，盾格分開時特別有用
+    if (rules.shieldN && !best.ok && cfg.shieldColor < 0) {
+        int cnt[8] = {};
+        for (int i = 0; i < cfg.rows * COLS; i++)
+            if (cells[i] != EMPTY && !(cells[i] & F_NODISSOLVE)) cnt[orbColor(cells[i])]++;
+        X.cfg.beam = std::max(cfg.beam, 900);
+        for (int c = 0; c < 6 && !best.ok; c++) {
+            if (cnt[c] < std::max(3, rules.shieldN)) continue;
+            X.cfg.shieldColor = c;
+            State cand;
+            if (beamSearch(b, cand) && better(cand, best)) best = cand;
+        }
+        X.cfg.shieldColor = -1;
         X.cfg.beam = cfg.beam;
     }
     Info in = resolve(best.b);
