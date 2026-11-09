@@ -767,10 +767,10 @@ class AutoTurnService : AccessibilityService() {
                     if (!wasHard && p.hard) toast("這關常常破不了，之後會自動提高搜尋品質")
                 }
                 // 找不到完全符合條件的轉法：照樣轉最接近的（求解器已把條件差距算進分數），只提示不停住
-                // 必消 3 色以上沒湊到：不轉，交給使用者自己處理（不讓程式想太久）
-                if (!lastGoalsOk && Integer.bitCount(stage.allMask) >= 3) {
+                // 首消必消沒湊到（第一批沒把那些顏色全部消光）：不轉，交給使用者自己處理（不讓程式想太久）
+                if (!lastGoalsOk && stage.allMask != 0) {
                     lastNoMove = false
-                    alertManual("必消 ${stage.allMaskText()} 三色以上沒湊到全部消光，這回合沒有轉，請自己轉珠")
+                    alertManual("這盤找不到「首消必消 ${stage.allMaskText()} 第一批全部消光」又符合其他條件的轉法，這回合沒有轉，請自己轉珠")
                     done(false)
                     return@post
                 }
@@ -1076,7 +1076,7 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(rowOf(comboBtn, firstBtn, threeBtn))
         panel.addView(rowOf(attrBtn, orbsBtn))
         panel.addView(rowOf(stickyBtn, fireBtn))
-        panel.addView(maskRow("必消(全部消光)", { edit.allMask }, { edit.allMask = it }))
+        panel.addView(maskRow("首消必消(全部消光)", { edit.allMask }, { edit.allMask = it }))
         panel.addView(maskRow("首消不能消(第一批)", { edit.antiMask }, { edit.antiMask = it }))
         panel.addView(rowOf(
             btn("清除全部") {

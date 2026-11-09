@@ -51,7 +51,7 @@ struct Rules {
     int firstOrbsExact = 0;            // 首消符石數量盾（NUM X）：首批消除「剛好」X 粒符石（疊珠不算）
     int antiMask = 0;                // 反屬性盾：首消不可消除這些珠種（bit = 珠種）
     int elemMask = 0;                // 多屬性盾：本回合須消除這些珠種（每種至少一組）
-    int allMask = 0;                 // 必消（全部）：這些珠種盤面上的珠要全部消光（不夠 3 的倍數就用 4、5 顆一組）
+    int allMask = 0;                 // 首消必消（全部消光）：這些珠種盤面上的珠要在第一批全部消光（不夠 3 的倍數就用 4、5 顆一組）
     bool shield[MAX_CELLS] = {};     // 拼圖盾格
     int shieldN = 0;
     Rules();

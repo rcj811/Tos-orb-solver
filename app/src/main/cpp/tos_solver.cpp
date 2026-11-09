@@ -100,6 +100,9 @@ Info resolve(Board b) {
     const int N = X.N;
     const Rules& RU = X.ru;
     Info in;
+    // 第一批一個 combo 都沒有時，必消顏色全部算沒消（第一批有消時再重新計算）
+    if (RU.allMask) for (int i = 0; i < N; i++)
+        if (b.c[i] != EMPTY && !(b.c[i] & F_NODISSOLVE) && (RU.allMask >> col(b.c[i]) & 1)) in.allLeft++;
     bool mark[MAXN];
     if (RU.shieldN) {
         int cnt[8] = {};
@@ -119,6 +122,12 @@ Info resolve(Board b) {
         if (round == 0) {
             in.first = c;
             in.firstOrbs = orbs;
+            // 首消必消（全部消光）：這些顏色的珠要在第一批就全部消掉，沒被消的都算剩下（疊珠不算）
+            if (RU.allMask) {
+                in.allLeft = 0;
+                for (int i = 0; i < N; i++)
+                    if (b.c[i] != EMPTY && !mark[i] && !(b.c[i] & F_NODISSOLVE) && (RU.allMask >> col(b.c[i]) & 1)) in.allLeft++;
+            }
             in.firstAttr = attr;
             in.firstMask = tm;
             // 盾格上（指定顏色）的珠在第一批被消掉的數量：引導搜尋把盾格的珠真的消掉
@@ -154,8 +163,6 @@ Info resolve(Board b) {
         removeAndDrop(b, mark);
     }
     for (int i = 0; i < N; i++) if (b.c[i] != EMPTY && (b.c[i] & F_MUST)) in.elecLeft++;
-    if (RU.allMask) for (int i = 0; i < N; i++)
-        if (b.c[i] != EMPTY && !(b.c[i] & F_NODISSOLVE) && (RU.allMask >> col(b.c[i]) & 1)) in.allLeft++;
     in.after = b;
     return in;
 }

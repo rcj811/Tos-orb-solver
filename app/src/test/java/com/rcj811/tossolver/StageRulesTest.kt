@@ -164,7 +164,7 @@ class StageRulesTest {
         assertTrue(!r.isEmpty())
         assertEquals(0b11, r.toInts()[111])
         assertEquals(0b11, StageRules().apply { deserialize(r.serialize()) }.allMask)
-        assertTrue(r.summary().contains("全部消光"))
+        assertTrue(r.summary().contains("第一批全部消光"))
         assertEquals(null, r.firstBatchImpossible(IntArray(30) { it % 6 }))
         // 水只有 2 顆 → 湊不出三連
         val few = IntArray(30) { if (it < 2) 1 else intArrayOf(0, 2, 3, 4, 5)[it % 5] }
