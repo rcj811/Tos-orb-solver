@@ -440,6 +440,27 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
         X.cfg.shieldColor = -1;
         X.cfg.beam = cfg.beam;
     }
+    // 整盤清光：每種顏色都是 0 顆或 ≥3 顆時才可能。用「重視消珠數」的權重再找一次，
+    // 只有 combo 不變少、消的珠更多時才換（better() 先比條件、再比 combo、再比消珠數）
+    if (cfg.tryFullClear && cfg.preferOrbs) {
+        int cnt[8] = {}, total = 0;
+        for (int i = 0; i < cfg.rows * COLS; i++)
+            if (cells[i] != EMPTY && !(cells[i] & F_NODISSOLVE)) { cnt[orbColor(cells[i])]++; total++; }
+        bool possible = true;
+        for (int c = 0; c < 6; c++) if (cnt[c] == 1 || cnt[c] == 2) possible = false;
+        if (possible && resolve(best.b).cleared < total) {
+            float w3 = X.cfg.weights[3];
+            for (float mul : {3.0f, 6.0f}) {
+                X.cfg.weights[3] = w3 * mul;
+                X.cfg.beam = std::max(cfg.beam, 900);
+                State cand;
+                if (beamSearch(b, cand) && better(cand, best)) best = cand;
+                if (resolve(best.b).cleared >= total) break;
+            }
+            X.cfg.weights[3] = w3;
+            X.cfg.beam = cfg.beam;
+        }
+    }
     Info in = resolve(best.b);
     r.found = true;
     r.combos = in.combos;
