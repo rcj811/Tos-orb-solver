@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.atan2
@@ -74,7 +73,6 @@ class BoardView(context: Context) : View(context) {
         strokeJoin = Paint.Join.ROUND
     }
     private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val rect = RectF()
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val w = MeasureSpec.getSize(widthMeasureSpec)

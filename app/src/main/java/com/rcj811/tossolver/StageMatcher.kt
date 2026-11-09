@@ -1,32 +1,11 @@
 package com.rcj811.tossolver
 
 import kotlin.math.abs
-import kotlin.math.min
 
 // 不依賴 Android API（可在 JVM 單元測試中驗證）
 
-/**
- * 點擊規則：「畫面上這個位置長得像錄製時的樣子，就點它」。
- * 用來自動處理戰鬥以外的畫面（結算、再次挑戰、選戰友、出戰…）。
- */
-class TapRule(val x: Float, val y: Float, val size: Float, val sig: FloatArray, val action: Int = ACTION_TAP) {
-    companion object {
-        const val ACTION_TAP = 0     // 看到就點
-        const val ACTION_STOP = 1    // 看到就停止自動執行並提醒（例如戰敗、體力不足）
-    }
-}
-
-object TapMatcher {
-    const val GRID = 12               // 特徵：點擊位置周圍正方形切成 12x12 格的平均顏色
-    const val MATCH_DIFF = 0.07f      // 平均色差（0~1）低於此值視為同一畫面
-
-    fun defaultSize(frame: Frame) = 0.09f * min(frame.width, frame.height)
-
-    fun signature(frame: Frame, x: Float, y: Float, size: Float): FloatArray? {
-        val half = size / 2f
-        return rectSignature(frame, x - half, y - half, size, size, GRID, GRID)
-    }
-
+/** 畫面特徵：把一塊區域切成小格取平均顏色，用來比對「是不是同一個畫面」（認關卡用） */
+object ScreenSig {
     /** 矩形區域切成 gx × gy 格，每格取 3x3 點的平均 RGB（0~1）；超出畫面回傳 null */
     fun rectSignature(frame: Frame, left: Float, top: Float, w: Float, h: Float, gxN: Int, gyN: Int): FloatArray? {
         if (left < 0 || top < 0 || left + w > frame.width || top + h > frame.height || w <= 0 || h <= 0) return null
@@ -58,28 +37,6 @@ object TapMatcher {
         for (i in a.indices) d += abs(a[i] - b[i])
         return d / a.size
     }
-
-    /** 目前畫面與規則錄製時的平均色差；超出畫面回傳 1 */
-    fun diff(frame: Frame, rule: TapRule): Float {
-        val s = signature(frame, rule.x, rule.y, rule.size) ?: return 1f
-        return meanAbsDiff(s, rule.sig)
-    }
-
-    /** 自我學習：規則被觸發時，讓記住的樣子慢慢貼近現在的按鈕（按鈕外觀小幅變化也認得） */
-    fun learn(frame: Frame, rule: TapRule, rate: Float = 0.1f) {
-        val s = signature(frame, rule.x, rule.y, rule.size) ?: return
-        if (s.size != rule.sig.size) return
-        for (i in s.indices) rule.sig[i] += rate * (s[i] - rule.sig[i])
-    }
-
-    /** 回傳第一條符合目前畫面的規則索引，沒有則 -1（skip 中的規則略過） */
-    fun firstMatch(frame: Frame, rules: List<TapRule>, skip: (Int) -> Boolean = { false }): Int {
-        for (i in rules.indices) {
-            if (skip(i)) continue
-            if (diff(frame, rules[i]) < MATCH_DIFF) return i
-        }
-        return -1
-    }
 }
 
 /**
@@ -103,13 +60,13 @@ class StagePreset(
 
     val sig: FloatArray get() = sigs[0]
 
-    fun diff(s: FloatArray): Float = sigs.minOf { TapMatcher.meanAbsDiff(s, it) }
+    fun diff(s: FloatArray): Float = sigs.minOf { ScreenSig.meanAbsDiff(s, it) }
 
     /** 認出這關時呼叫：記住新樣子，或讓最接近的樣子慢慢貼近現在的畫面 */
     fun learn(s: FloatArray) {
         var j = 0
         var d = Float.MAX_VALUE
-        for (k in sigs.indices) { val x = TapMatcher.meanAbsDiff(s, sigs[k]); if (x < d) { d = x; j = k } }
+        for (k in sigs.indices) { val x = ScreenSig.meanAbsDiff(s, sigs[k]); if (x < d) { d = x; j = k } }
         if (d > ADD_DIFF && sigs.size < MAX_SIGS) {
             sigs.add(s.copyOf())
         } else if (sigs[j].size == s.size) {
@@ -140,7 +97,7 @@ object StageMatcher {
         var bottom = geo.top - geo.cell * 1.3f
         if (bottom - top < geo.cell) bottom = geo.top - 2f
         if (bottom - top < geo.cell * 0.5f) return null
-        return TapMatcher.rectSignature(frame, 0f, top, frame.width.toFloat(), bottom - top, GX, GY)
+        return ScreenSig.rectSignature(frame, 0f, top, frame.width.toFloat(), bottom - top, GX, GY)
     }
 
     /** 回傳最相似的關卡索引與色差；沒有在門檻內的回傳 -1 */

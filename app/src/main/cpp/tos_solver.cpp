@@ -283,9 +283,10 @@ bool better(const State& a, const State& b) {
     // 兩個都沒完全符合：先比做到幾項條件（例如拼圖盾＋首消 8 combo，不能為了 combo 放棄拼圖盾）
     if (!a.ok && a.goals != b.goals) return a.goals > b.goals;
     if (a.combos != b.combos) return a.combos > b.combos;
-    if (X.cfg.preferOrbs) {
-        // 同 combo：消越多珠傷害越高，其次首消越多，最後才比路徑短
-        if (a.cleared != b.cleared) return a.cleared > b.cleared;
+    if (X.cfg.prefer3) {
+        // 同 combo：每組剛好 3 顆最好（多出來的珠越少越好），其次首消 combo 越多
+        const int ea = a.cleared - 3 * a.combos, eb = b.cleared - 3 * b.combos;
+        if (ea != eb) return ea < eb;
         if (a.first != b.first) return a.first > b.first;
     }
     return a.len < b.len;
@@ -485,29 +486,6 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
             if (beamSearch(b, cand) && better(cand, best)) best = cand;
         }
         X.cfg.beam = cfg.beam;
-    }
-    // 3) 整盤清光：每種顏色都是 0 顆或 ≥3 顆時才可能。用「重視消珠數」的權重再找，
-    //    只有 combo 不變少、消的珠更多時才換（better() 先比條件、再比 combo、再比消珠數）
-    if (cfg.tryFullClear && cfg.preferOrbs) {
-        int cnt[8] = {}, total = 0;
-        for (int i = 0; i < cfg.rows * COLS; i++)
-            if (cells[i] != EMPTY && !(cells[i] & F_NODISSOLVE)) { cnt[orbColor(cells[i])]++; total++; }
-        bool possible = true;
-        for (int c = 0; c < 6; c++) if (cnt[c] == 1 || cnt[c] == 2) possible = false;
-        if (possible && resolve(best.b).cleared < total) {
-            float w3 = X.cfg.weights[3];
-            const int fb = std::max(cfg.beam, 900);
-            for (float mul : {3.0f, 6.0f}) {
-                if (!fits(fb, 1)) break;
-                X.cfg.weights[3] = w3 * mul;
-                X.cfg.beam = fb;
-                State cand;
-                if (beamSearch(b, cand) && better(cand, best)) best = cand;
-                if (resolve(best.b).cleared >= total) break;
-            }
-            X.cfg.weights[3] = w3;
-            X.cfg.beam = cfg.beam;
-        }
     }
     Info in = resolve(best.b);
     r.found = true;

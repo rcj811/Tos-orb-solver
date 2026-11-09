@@ -28,7 +28,6 @@ class MainActivity : Activity() {
 
     private lateinit var settings: AppSettings
     private lateinit var colorStore: ColorStore
-    private lateinit var ruleStore: RuleStore
 
     // 自動轉珠
     private lateinit var autoStatus: TextView
@@ -36,8 +35,6 @@ class MainActivity : Activity() {
     private lateinit var modeBtn: Button
     private lateinit var readBossBtn: Button
     private lateinit var rulesText: TextView
-    private lateinit var undoRuleBtn: Button
-    private lateinit var clearRulesBtn: Button
     private lateinit var stepBtn: Button
     private lateinit var timeBtn: Button
     private lateinit var resetColorBtn: Button
@@ -65,7 +62,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
         colorStore = ColorStore(this)
-        ruleStore = RuleStore(this)
         OrbTypeStore(this).apply()
 
         val root = LinearLayout(this).apply {
@@ -120,17 +116,6 @@ class MainActivity : Activity() {
 
         rulesText = note("")
         root.addView(rulesText)
-        undoRuleBtn = button("刪除最後一條規則") {
-            ruleStore.removeLast()
-            AutoTurnService.instance?.reloadModel()
-            refreshAuto()
-        }
-        clearRulesBtn = button("清除全部規則") {
-            ruleStore.clear()
-            AutoTurnService.instance?.reloadModel()
-            refreshAuto()
-        }
-        root.addView(row(undoRuleBtn, clearRulesBtn))
         root.addView(button("管理學習資料（一筆一筆刪除設定錯的）") {
             OrbTypeDialog.showLearningData(this) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
         })
@@ -144,21 +129,18 @@ class MainActivity : Activity() {
             "開啟步驟（只需一次）：\n" +
                 "1. 按「開啟無障礙設定」→ 已下載的應用程式 →「自轉珠」→ 開啟。\n" +
                 "　若開關是灰色、顯示「受限設定」：先按「允許受限設定」→ 右上角 ⋮ →「允許受限設定」，再回去開啟。\n" +
-                "2. 畫面上方會出現橫向懸浮工作列：⠿ 拖曳／收合、▶ 自動執行、轉 轉一回合、＋ 新增點擊規則、校 校正。\n" +
+                "2. 畫面上方會出現橫向懸浮工作列：⠿ 拖曳／收合、▶ 自動轉珠（最高 combo）、轉 轉一回合、＋ 讀王的技能卡、校 校正盤面、關 關卡條件。\n" +
                 "3. 進入戰鬥，珠子靜止時按「校」→「自動偵測」對齊盤面，顏色不對就點格子修正 →「儲存並學習」。\n" +
-                "4. 教它過關卡（使用者設定）：在結算、再次挑戰、選戰友、出戰等畫面，按「＋」再點一下要按的按鈕，" +
-                "然後自己按那個按鈕進到下一個畫面，重複到回到戰鬥為止。\n" +
                 "4-1. 特殊符石（強化、風化/黏腐、觸電、冰封/石化）：在校正畫面「長按」格子標記類別，儲存後就會自動辨識。" +
                 "遇到程式不認識的珠子，按「＋新增符石類別」自己定義（能不能碰、必須消除／不能消除…），再到校正畫面標記。\n" +
-                "4-2. 讀王的破解條件：長按王打開技能視窗，再按工作列「關」，會自動讀文字並設定轉珠條件；" +
+                "4-2. 讀王的破解條件：長按王打開技能視窗，再按工作列「＋」，會讀出技能、設定轉珠條件並解說破解方法；" +
                 "自動執行遇到沒記過的關卡，也會自己長按王去讀（可在上方關閉）。\n" +
                 "5. 有特殊機制的關卡（拼圖盾、Combo 盾、首消盾、多屬性盾、燃燒、黑洞、火焰區、漩渦、黏手路徑…）：" +
                 "第一次遇到時按工作列「關」，選筆刷後點盤面格子畫出拼圖盾形狀等，按「完成」。" +
                 "程式會記住這關的敵人畫面，之後遇到同一關會自動判斷並套用（「關」按鈕變黃）；沒記過的關卡照一般盤打。\n" +
-                "　過不了才交給你：套用機制後連續 3 回合破不了、或看到「停止畫面」（用「＋」切到「看到就停止」錄製，例如戰敗、體力不足），會停止並震動提醒。\n" +
-                "6. 按 ▶ 自動執行：戰鬥中自動轉珠，戰鬥外看到記住的畫面就自動點，可一直重複刷關。按 ■ 停止。\n" +
-                "　畫面卡住（同一個按鈕連點 6 次）或 3 分鐘沒事做會自動停止。\n" +
-                "7. 工作列 ✕ 連按兩下可關閉自轉珠；要再使用時打開本 App，會自動詢問是否重新開啟。\n\n" +
+                "　沒把握也會照最接近條件的轉；條件真的互相衝突時才不轉，並告訴你哪裡衝突、怎麼改。\n" +
+                "6. 按 ▶ 自動轉珠：每回合轉最高 combo（同 combo 時每組 3 顆）。看不到盤面 8 秒會自動暫停。按 ■ 停止。\n" +
+                "7. 工作列 ✕ →「確認關閉」會完全結束自轉珠；要再使用時打開本 App 重新開啟。\n\n" +
                 "小提醒：遊戲沒跟上拖曳就把「每步」調慢；斜轉常失敗就改成 4 方向。體力用完的畫面不要錄規則，免得一直點。\n" +
                 "自動操作違反遊戲使用條款，有被封帳號的風險，請自行斟酌。"
         ))
@@ -402,12 +384,7 @@ class MainActivity : Activity() {
         typesText.text = "符石類別（遇到程式認不出的珠子，可以自己新增）：\n" +
             OrbTypes.all().joinToString("\n") { t -> "• ${t.name}：${t.describe()}" + if (t.builtin) "" else "（自訂）" }
         delTypeBtn.isEnabled = OrbTypes.custom.isNotEmpty()
-        val nRules = ruleStore.count
-        rulesText.text = (if (nRules == 0) "點擊規則：尚未設定（▶ 自動執行只會轉珠，不會自動過關卡）"
-        else "點擊規則：$nRules 條（自動執行時，看到記住的畫面就會自動點）") +
-            "\n" + StagePresetStore(this).summary() + "\n（自我學習：每玩一回合都會記下關卡畫面、破盾結果、珠子顏色，玩越多判斷越準）"
-        undoRuleBtn.isEnabled = nRules > 0
-        clearRulesBtn.isEnabled = nRules > 0
+        rulesText.text = StagePresetStore(this).summary() + "\n（自我學習：每玩一回合都會記下關卡畫面、破盾結果、珠子顏色，玩越多判斷越準）"
     }
 
     private fun next(choices: IntArray, cur: Int): Int {

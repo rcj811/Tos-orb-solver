@@ -80,10 +80,9 @@ struct Config {
     float weights[NUM_FEATURES] = {24.55f, 12.73f, 12.02f, 23.49f, 2.07f, 21.83f, 61.91f};
     float shieldGuide = 150; // 拼圖盾引導強度
     float elemGuide = 600;   // 多屬性盾引導強度
-    bool preferOrbs = true;  // combo 相同時，選消除珠數較多（傷害較高）的解，而不是較短的路徑
-    int timeBudgetMs = 0;
-    int shieldColor = -1;
-    bool tryFullClear = true; // 最多 combo 之外，再找能把整個盤面清光的轉法（combo 數不會變少）    // 拼圖盾：指定用哪一種顏色鋪盾（-1 = 自動，取盾格上最多的顏色）    // >0：時間內逐步加寬 beam（×3）重算，取最好的解（不佔遊戲轉珠時間）
+    bool prefer3 = true;     // combo 相同時，選每組剛好 3 顆的消法（多出來的珠越少越好，combo 才會最多）
+    int timeBudgetMs = 0;    // >0：所有加強搜尋（拼圖盾換色、加寬 beam）都在這個時間內完成；0 = 不限時間
+    int shieldColor = -1;    // 拼圖盾：指定用哪一種顏色鋪盾（-1 = 自動，取盾格上最多的顏色）
 };
 
 inline int defaultMaxPath(int rows) { return 25 + rows * 2; }

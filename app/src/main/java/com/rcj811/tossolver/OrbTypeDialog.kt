@@ -126,14 +126,12 @@ object OrbTypeDialog {
     fun showLearningData(ctx: Context, onChanged: () -> Unit) {
         val cs = ColorStore(ctx)
         val ps = StagePresetStore(ctx)
-        val rs = RuleStore(ctx)
         val counts = cs.protoCounts()
         val special = OrbTypes.all().filter { it.id != OrbState.NORMAL }
         val items = arrayOf(
             "珠子顏色範例（含黑白盤面形狀）：" + (0 until 6).joinToString(" ") { "${StageRules.ORB_SHORT[it]}${counts[it] + ShapeStore(ctx).count(it)}" },
             "特殊符石樣子：" + special.joinToString(" ") { "${it.name}${cs.stateCount(it.id)}" },
             "記住的關卡：${ps.count} 個",
-            "點擊規則：${rs.count} 條",
         )
         AlertDialog.Builder(ctx, dialogTheme())
             .setTitle("管理學習資料")
@@ -157,18 +155,6 @@ object OrbTypeDialog {
                             .setTitle("刪除哪一關？")
                             .setItems(l.mapIndexed { i, p -> "關卡 ${i + 1}：${p.rules.summary()}（${p.seen} 回合）" }.toTypedArray()) { _, i ->
                                 confirm(ctx, "刪除關卡 ${i + 1}？之後遇到會重新判斷。") { ps.delete(i); onChanged() }
-                            }.setNegativeButton("返回", null).show()
-                    }
-                    3 -> {
-                        val l = rs.load()
-                        if (l.isEmpty()) return@setItems
-                        AlertDialog.Builder(ctx, dialogTheme())
-                            .setTitle("刪除哪一條規則？")
-                            .setItems(l.mapIndexed { i, r ->
-                                "規則 ${i + 1}：" + (if (r.action == TapRule.ACTION_STOP) "看到就停止" else "看到就點") +
-                                    "（位置 ${r.x.toInt()}, ${r.y.toInt()}）"
-                            }.toTypedArray()) { _, i ->
-                                confirm(ctx, "刪除規則 ${i + 1}？") { rs.delete(i); onChanged() }
                             }.setNegativeButton("返回", null).show()
                     }
                 }

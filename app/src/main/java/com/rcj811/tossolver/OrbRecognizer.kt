@@ -221,7 +221,6 @@ class Recognition(
     fun dissolvableColors() = IntArray(cells) { i -> if (solverCell(i) and 0x20 != 0) -1 else colors[i] }
     fun unknownCount() = (0 until cells).count { isUnknown(it) }
     fun minConfidence() = (0 until cells).minOf { confidence[it] }
-    fun totalConfidence() = (0 until cells).sumOf { confidence[it].toDouble() }.toFloat()
 }
 
 /**
@@ -592,10 +591,4 @@ object OrbRecognizer {
         return both >= a.size * 0.7f
     }
 
-    /** 兩次辨識結果是否為同一盤面（只比較有信心的格子） */
-    fun sameBoard(a: IntArray?, b: IntArray?): Boolean {
-        if (a == null || b == null || a.size != b.size) return false
-        for (i in a.indices) if (a[i] != b[i]) return false
-        return true
-    }
 }

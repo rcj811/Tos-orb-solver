@@ -65,11 +65,8 @@ class StageMatcherTest {
     }
 
     @Test
-    fun stopRuleKeepsAction() {
-        val r = TapRule(1f, 2f, 3f, FloatArray(3), TapRule.ACTION_STOP)
-        assertEquals(TapRule.ACTION_STOP, r.action)
-        assertEquals(TapRule.ACTION_TAP, TapRule(1f, 2f, 3f, FloatArray(3)).action)
-        assertTrue(TapMatcher.meanAbsDiff(FloatArray(4), FloatArray(5)) == 1f)
+    fun differentSizedSignaturesNeverMatch() {
+        assertTrue(ScreenSig.meanAbsDiff(FloatArray(4), FloatArray(5)) == 1f)
     }
 }
 

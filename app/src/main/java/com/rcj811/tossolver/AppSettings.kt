@@ -11,8 +11,6 @@ class AppSettings(context: Context) {
     companion object {
         const val SAFETY_MS = 400
         val STEP_CHOICES = intArrayOf(30, 40, 50, 60, 70, 90, 110, 140)
-        /** 最快的穩定速度（每格 40ms ≈ 60fps 下每格 2.4 個畫面，遊戲不會漏格） */
-        const val FASTEST_STEP = 40
         /** 預設轉珠速度：每格 60ms（比最快慢一點，遊戲更不容易漏格） */
         const val DEFAULT_STEP = 60
         val TIME_CHOICES = intArrayOf(4, 5, 6, 8, 10, 15)
@@ -23,15 +21,9 @@ class AppSettings(context: Context) {
         get() = sp.getBoolean("autoDrag", true)
         set(v) = sp.edit().putBoolean("autoDrag", v).apply()
 
-    /** 連續模式：盤面穩定就自動出手，直到再按一次圓鈕 */
-    var continuous: Boolean
-        get() = sp.getBoolean("continuous", false)
-        set(v) = sp.edit().putBoolean("continuous", v).apply()
-
     /** 每移動一格的時間（毫秒） */
     var stepMs: Int
         get() {
-            // 一次性改成最快速度（舊版預設 90ms）
             // 一次性改成預設速度 60ms（舊版預設 90ms、40ms）
             if (!sp.getBoolean("speedV3", false)) sp.edit().putInt("stepMs", DEFAULT_STEP).putBoolean("speedV3", true).apply()
             return sp.getInt("stepMs", DEFAULT_STEP)
@@ -201,61 +193,6 @@ class OrbTypeStore(context: Context) {
     fun apply() { OrbTypes.custom = load() }
 }
 
-/** 點擊規則的存取（JSON） */
-class RuleStore(context: Context) {
-    private val sp = context.getSharedPreferences("rules", Context.MODE_PRIVATE)
-
-    fun load(): MutableList<TapRule> {
-        val out = ArrayList<TapRule>()
-        runCatching {
-            val arr = org.json.JSONArray(sp.getString("rules", "[]"))
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val sig = o.getString("sig").split(',').map { it.toFloat() }.toFloatArray()
-                out.add(TapRule(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("size").toFloat(), sig,
-                    o.optInt("act", TapRule.ACTION_TAP)))
-            }
-        }
-        return out
-    }
-
-    fun save(rules: List<TapRule>) {
-        val arr = org.json.JSONArray()
-        for (r in rules) {
-            val o = org.json.JSONObject()
-            o.put("x", r.x.toDouble())
-            o.put("y", r.y.toDouble())
-            o.put("size", r.size.toDouble())
-            o.put("sig", r.sig.joinToString(",") { String.format(java.util.Locale.US, "%.3f", it) })
-            o.put("act", r.action)
-            arr.put(o)
-        }
-        sp.edit().putString("rules", arr.toString()).apply()
-    }
-
-    fun add(rule: TapRule): Int {
-        val list = load()
-        list.add(rule)
-        save(list)
-        return list.size
-    }
-
-    fun removeLast(): Int {
-        val list = load()
-        if (list.isNotEmpty()) list.removeAt(list.size - 1)
-        save(list)
-        return list.size
-    }
-
-    val count: Int get() = load().size
-
-    fun clear() = sp.edit().remove("rules").apply()
-
-    fun delete(index: Int) {
-        val l = load()
-        if (index in l.indices) { l.removeAt(index); save(l) }
-    }
-}
 
 /** 顏色學習結果的存取 */
 class ColorStore(context: Context) {

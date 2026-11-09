@@ -221,11 +221,11 @@ int main() {
     }
 
     {
-        // 轉珠時間用滿：同 combo 時選消珠多的解、路徑不超過上限、加寬搜尋不變差
+        // 轉珠時間用滿：路徑不超過上限、加寬搜尋 combo 不變差；同 combo 時每組盡量 3 顆
         std::mt19937 rg(77); int n = 60; double cOld = 0, cNew = 0, oOld = 0, oNew = 0; int over = 0, bad = 0;
         for (int k = 0; k < n; k++) {
             uint8_t bb[MAX_CELLS]; do { for (int i = 0; i < 30; i++) bb[i] = rg() % 6; } while (countCombos(bb, 5) > 0);
-            Config a; a.maxPath = 35; a.preferOrbs = false;
+            Config a; a.maxPath = 35; a.prefer3 = false;
             Config z; z.maxPath = 49; z.timeBudgetMs = 800;
             Solution sa = solve(bb, a), sz = solve(bb, z);
             Outcome oz = replay(bb, sz.start, sz.dirs, z);
@@ -236,7 +236,8 @@ int main() {
         std::printf("轉珠時間用滿：combo %.2f → %.2f，消珠 %.1f → %.1f\n", cOld / n, cNew / n, oOld / n, oNew / n);
         CHECK(bad == 0, "長路徑重播一致");
         CHECK(over == 0, "路徑不超過時間上限");
-        CHECK(cNew >= cOld && oNew > oOld, "combo 不變差、消珠變多");
+        CHECK(cNew >= cOld, "combo 不變差");
+        CHECK(oNew - 3 * cNew <= oOld - 3 * cOld + 0.01, "每組多出來的珠不變多（盡量每組 3 顆）");
     }
 
     {
