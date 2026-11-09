@@ -90,7 +90,7 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 
 struct Info {
     int combos = 0, first = 0, firstOrbs = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
-    int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0, shieldHit = 0;
+    int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0, shieldHit = 0, shieldLeak = 0;
     bool shieldBroken = false;
     Board after;
 };
@@ -123,8 +123,27 @@ Info resolve(Board b) {
             // 盾格上（指定顏色）的珠在第一批被消掉的數量：引導搜尋把盾格的珠真的消掉
             if (RU.shieldN) for (int i = 0; i < N; i++)
                 if (RU.shield[i] && mark[i] && (X.cfg.shieldColor < 0 || col(b.c[i]) == X.cfg.shieldColor)) in.shieldHit++;
+            // 拼圖盾要「剛好」那個形狀：和盾格連在一起、一起消掉的同色珠不能超出盾的範圍
+            if (RU.shieldN) {
+                bool seen[MAXN] = {};
+                int stk[MAXN];
+                for (int i = 0; i < N; i++) {
+                    if (!RU.shield[i] || !mark[i] || seen[i]) continue;
+                    int sp = 0; stk[sp++] = i; seen[i] = true;
+                    while (sp) {
+                        int p = stk[--sp];
+                        if (!RU.shield[p]) in.shieldLeak++;
+                        for (int d = 0; d < 4; d++) {
+                            int nx = p % C + DX[d], ny = p / C + DY[d];
+                            if (nx < 0 || nx >= C || ny < 0 || ny >= X.R) continue;
+                            int q = ny * C + nx;
+                            if (mark[q] && !seen[q] && col(b.c[q]) == col(b.c[p])) { seen[q] = true; stk[sp++] = q; }
+                        }
+                    }
+                }
+            }
             if (RU.shieldN && in.shieldCover == RU.shieldN) {
-                in.shieldBroken = true;
+                in.shieldBroken = in.shieldLeak == 0;
                 for (int i = 0; i < N; i++) if (RU.shield[i] && !mark[i]) { in.shieldBroken = false; break; }
             }
         }
@@ -170,6 +189,23 @@ bool endOk(int pos) {
     return true;
 }
 
+/** 有設定的條件中，做到了幾項（全部做不到時，用來挑「最接近條件」的轉法） */
+int goalsCount(const Info& in, int pos) {
+    const Rules& RU = X.ru;
+    int g = 0;
+    g += endOk(pos);
+    g += in.elecLeft == 0;
+    g += in.combos >= RU.comboMin && in.first >= RU.firstMin;
+    g += in.firstAttr >= RU.firstAttrMin;
+    g += !RU.firstOrbsExact || in.firstOrbs == RU.firstOrbsExact;
+    g += !RU.first3Only || in.firstOrbs == 3 * in.first;
+    g += RU.firstExact < 0 || in.first == RU.firstExact;
+    g += !(in.firstMask & RU.antiMask);
+    g += (in.mask & RU.elemMask) == RU.elemMask;
+    g += !RU.shieldN || in.shieldBroken;
+    return g;
+}
+
 bool goalsOk(const Info& in, int pos) {
     const Rules& RU = X.ru;
     if (!endOk(pos)) return false;
@@ -193,6 +229,7 @@ struct State {
     int combos;
     int cleared;
     int first;
+    int goals;     // 做到的條件數
     bool ok;
     uint64_t visited;
     uint8_t used[MAXN];
@@ -207,6 +244,7 @@ void score(State& s) {
     s.combos = in.combos;
     s.cleared = in.cleared;
     s.first = in.first;
+    s.goals = goalsCount(in, s.pos);
     float f[NUM_FEATURES];
     features(in, s.len, f);
     float w = in.combos * 1000.0f;
@@ -233,7 +271,7 @@ void score(State& s) {
     if (RU.shieldN)
         w += (in.shieldCover == RU.shieldN ? 2800 + RU.shieldN * 300
                                            : in.shieldCover * in.shieldCover * cfg.shieldGuide)
-           + in.shieldHit * 250;
+           + in.shieldHit * 250 - in.shieldLeak * 500;
     if (endOk(s.pos)) w += 300;
     s.ok = goalsOk(in, s.pos);
     if (s.ok) w += 20000;
@@ -242,6 +280,8 @@ void score(State& s) {
 
 bool better(const State& a, const State& b) {
     if (a.ok != b.ok) return a.ok;
+    // 兩個都沒完全符合：先比做到幾項條件（例如拼圖盾＋首消 8 combo，不能為了 combo 放棄拼圖盾）
+    if (!a.ok && a.goals != b.goals) return a.goals > b.goals;
     if (a.combos != b.combos) return a.combos > b.combos;
     if (X.cfg.preferOrbs) {
         // 同 combo：消越多珠傷害越高，其次首消越多，最後才比路徑短

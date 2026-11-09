@@ -295,6 +295,29 @@ int main() {
         CHECK(!replay(four, 5, {1}, c4, one).goalsMet, "4 顆連珠不算達成");
     }
 
+    {
+        // 拼圖盾要「剛好」那個形狀：盾旁邊同色珠一起消掉（形狀變大）不算破盾
+        int v[RULES_INTS] = {0}; v[0] = 1; v[3] = -1; v[8] = 6; v[10] = -1; v[11] = -1;
+        for (int i = 0; i < MAX_CELLS; i++) v[12 + MAX_CELLS + i] = -1;
+        for (int i : {13, 14, 15}) v[12 + i] |= CF_SHIELD;
+        Rules rs; rulesFromInts(v, RULES_INTS, rs);
+        uint8_t b4[MAX_CELLS]; parse("123451" "234512" "300001" "451234" "512345", b4, 30);
+        uint8_t b3[MAX_CELLS]; parse("123451" "234512" "300021" "451234" "512345", b3, 30);
+        Config cs;
+        CHECK(!replay(b4, 29, {2}, cs, rs).goalsMet, "拼圖盾：多一顆同色相連不算破盾");
+        CHECK(replay(b3, 29, {2}, cs, rs).goalsMet, "拼圖盾：剛好形狀才算破盾");
+        // 拼圖盾＋首消剛好 6 combo：兩個都要做到
+        v[3] = 6; Rules r6; rulesFromInts(v, RULES_INTS, r6);
+        std::mt19937 rq(9); int both = 0, n = 20;
+        for (int k = 0; k < n; k++) {
+            uint8_t bb[MAX_CELLS]; for (int i = 0; i < 30; i++) bb[i] = rq() % 6;
+            Config c6; c6.maxPath = 60; Solution s = solve(bb, c6, r6);
+            if (s.goalsMet && s.firstCombos == 6) both++;
+        }
+        std::printf("拼圖盾＋首消剛好 6 combo：%d / %d\n", both, n);
+        CHECK(both >= n * 0.9, "拼圖盾＋首消剛好 6 combo 兩個都做到");
+    }
+
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);
     return failures ? 1 : 0;
 }
