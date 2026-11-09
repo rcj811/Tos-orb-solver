@@ -178,6 +178,22 @@ class StageRules {
             }
             if (f and MUST_ORB != 0 && f and CRACK != 0) out.add("${pos(i)} 標了必消，但那格是裂痕（不能消）")
         }
+        // 拼圖盾要剛好那個形狀：每一格都要在盾裡的「直或橫連續 3 格」上，否則不可能剛好消掉
+        run {
+            val rows = n / 6
+            fun sh(x: Int, y: Int) = x in 0 until 6 && y in 0 until rows && cellFlags[y * 6 + x] and SHIELD != 0
+            val bad = (0 until n).filter { i ->
+                if (cellFlags[i] and SHIELD == 0) return@filter false
+                val x = i % 6; val y = i / 6
+                val h = (-2..0).any { d -> sh(x + d, y) && sh(x + d + 1, y) && sh(x + d + 2, y) }
+                val v = (-2..0).any { d -> sh(x, y + d) && sh(x, y + d + 1) && sh(x, y + d + 2) }
+                !h && !v
+            }
+            if (bad.isNotEmpty()) out.add(
+                "拼圖盾的形狀不可能剛好消掉：" + bad.joinToString("、") { pos(it) } +
+                    " 不在盾裡任何一條直或橫連續 3 格上（三連至少要 3 格）。請照遊戲裡盾的形狀把格子標完整"
+            )
+        }
         // 拼圖盾：要用同一種顏色鋪滿所有盾格，盤面上至少要有那麼多顆同色、可以消的珠
         val shieldN = count(SHIELD)
         if (shieldN > 0) {

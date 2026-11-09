@@ -129,20 +129,29 @@ class StageRulesTest {
     @Test
     fun conflictsAreExplained() {
         val board = IntArray(30) { it % 6 }
-        // 拼圖盾 2 格＋起點＋終點：沒有衝突（就算這盤沒把握，也照樣轉）
-        val ok = StageRules().apply { toggle(7, SHIELD); toggle(22, SHIELD); green = 0; red = 29 }
+        // 拼圖盾 3 格（橫）＋起點＋終點：沒有衝突（就算這盤沒把握，也照樣轉）
+        val ok = StageRules().apply { toggle(13, SHIELD); toggle(14, SHIELD); toggle(15, SHIELD); green = 0; red = 29 }
         assertTrue(ok.conflicts(board, board).isEmpty())
+        // 拼圖盾只標 2 格（分開）：不可能剛好消掉，要說出是哪幾格
+        val two = StageRules().apply { toggle(7, SHIELD); toggle(22, SHIELD) }
+        assertTrue(two.conflicts(board, board).any { it.contains("不可能剛好消掉") && it.contains("第 2 列第 2 格") })
+        // L 形 4 格：轉角那格在橫三上、直的那格要在直三上 → 3 橫＋1 突出不行
+        val l4 = StageRules().apply { toggle(12, SHIELD); toggle(13, SHIELD); toggle(14, SHIELD); toggle(20, SHIELD) }
+        assertTrue(l4.conflicts(board, board).any { it.contains("第 4 列第 3 格") })
+        // 十字 5 格可以
+        val cross = StageRules().apply { for (i in intArrayOf(8, 13, 14, 15, 20)) toggle(i, SHIELD) }
+        assertTrue(cross.conflicts(board, board).none { it.contains("不可能剛好消掉") })
         // 起點設在燃燒格
         val burn = StageRules().apply { toggle(0, NO_TOUCH); green = 0 }
         assertTrue(burn.conflicts(board, board).single().contains("起點"))
         // 拼圖盾格又是裂痕
-        val crack = StageRules().apply { toggle(3, SHIELD); toggle(3, CRACK) }
+        val crack = StageRules().apply { toggle(2, SHIELD); toggle(3, SHIELD); toggle(4, SHIELD); toggle(3, CRACK) }
         assertTrue(crack.conflicts(board, board).any { it.contains("裂痕") })
         // 終點不在火焰區
         val flame = StageRules().apply { toggle(10, FLAME_END); red = 29 }
         assertTrue(flame.conflicts(board, board).any { it.contains("火焰區") })
-        // 拼圖盾 8 格，但每色只有 5 顆
-        val big = StageRules().apply { for (i in 0 until 8) toggle(i, SHIELD) }
+        // 拼圖盾 9 格，但每色只有 5 顆
+        val big = StageRules().apply { for (i in 0 until 6) toggle(i, SHIELD); for (i in 6 until 9) toggle(i, SHIELD) }
         assertTrue(big.conflicts(board, board).any { it.contains("同色可消的珠最多只有 5 顆") })
         // 起點的珠不能碰（冰封）
         val cells = board.copyOf().also { it[0] = it[0] or 0x60 }
