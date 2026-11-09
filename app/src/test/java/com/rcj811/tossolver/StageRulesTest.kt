@@ -159,6 +159,19 @@ class StageRulesTest {
     }
 
     @Test
+    fun mustClearAllColors() {
+        val r = StageRules().apply { allMask = 0b11 }
+        assertTrue(!r.isEmpty())
+        assertEquals(0b11, r.toInts()[111])
+        assertEquals(0b11, StageRules().apply { deserialize(r.serialize()) }.allMask)
+        assertTrue(r.summary().contains("全部消光"))
+        assertEquals(null, r.firstBatchImpossible(IntArray(30) { it % 6 }))
+        // 水只有 2 顆 → 湊不出三連
+        val few = IntArray(30) { if (it < 2) 1 else intArrayOf(0, 2, 3, 4, 5)[it % 5] }
+        assertTrue(r.firstBatchImpossible(few) != null)
+    }
+
+    @Test
     fun toggleTwiceClears() {
         val r = StageRules()
         r.toggle(10, StageRules.SHIELD)

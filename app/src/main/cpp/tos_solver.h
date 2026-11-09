@@ -50,7 +50,8 @@ struct Rules {
     bool first3Only = false;         // 首消每組只能剛好 3 顆（不能有 4 顆以上連成一組）
     int firstOrbsExact = 0;            // 首消符石數量盾（NUM X）：首批消除「剛好」X 粒符石（疊珠不算）
     int antiMask = 0;                // 反屬性盾：首消不可消除這些珠種（bit = 珠種）
-    int elemMask = 0;                // 多屬性盾：本回合須消除這些珠種
+    int elemMask = 0;                // 多屬性盾：本回合須消除這些珠種（每種至少一組）
+    int allMask = 0;                 // 必消（全部）：這些珠種盤面上的珠要全部消光（不夠 3 的倍數就用 4、5 顆一組）
     bool shield[MAX_CELLS] = {};     // 拼圖盾格
     int shieldN = 0;
     Rules();
@@ -60,7 +61,7 @@ struct Rules {
 //  [0] 版本(1) [1] comboMin [2] firstMin [3] firstExact(-1=無) [4] antiMask [5] elemMask
 //  [6] stickyPath [7] firePath [8] fireSize [9] maxHurt [10] green [11] red
 //  [12 .. 12+48) 每格旗標  [60 .. 60+48) 每格變形魔球珠種（-1=無）
-//  [108] firstAttrMin  [109] firstOrbsExact  [110] first3Only  [111] 保留（長度 108 的舊格式仍可讀）
+//  [108] firstAttrMin  [109] firstOrbsExact  [110] first3Only  [111] allMask（長度 108 的舊格式仍可讀）
 constexpr int RULES_INTS_V1 = 12 + MAX_CELLS * 2;
 constexpr int RULES_INTS = RULES_INTS_V1 + 4;
 enum CellFlag { CF_SHIELD = 1, CF_CRACK = 2, CF_NO_TOUCH = 4, CF_FLAME_END = 8, CF_BLACK_HOLE = 16 };
@@ -82,7 +83,8 @@ struct Config {
     float elemGuide = 600;   // 多屬性盾引導強度
     bool prefer3 = true;     // combo 相同時，選每組剛好 3 顆的消法（多出來的珠越少越好，combo 才會最多）
     int timeBudgetMs = 0;    // >0：所有加強搜尋（拼圖盾換色、加寬 beam）都在這個時間內完成；0 = 不限時間
-    int shieldColor = -1;    // 拼圖盾：指定用哪一種顏色鋪盾（-1 = 自動，取盾格上最多的顏色）
+    int shieldColor = -1;
+    float allBoost = 1.0f;   // 必消（全部消光）引導強度倍數（沒湊到時加重再找）    // 拼圖盾：指定用哪一種顏色鋪盾（-1 = 自動，取盾格上最多的顏色）
 };
 
 inline int defaultMaxPath(int rows) { return 25 + rows * 2; }

@@ -90,6 +90,7 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 
 struct Info {
     int combos = 0, first = 0, firstOrbs = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
+    int allLeft = 0;   // 「必消（全部）」顏色還留在盤面上的珠數
     int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0, shieldHit = 0, shieldLeak = 0;
     bool shieldBroken = false;
     Board after;
@@ -153,6 +154,8 @@ Info resolve(Board b) {
         removeAndDrop(b, mark);
     }
     for (int i = 0; i < N; i++) if (b.c[i] != EMPTY && (b.c[i] & F_MUST)) in.elecLeft++;
+    if (RU.allMask) for (int i = 0; i < N; i++)
+        if (b.c[i] != EMPTY && !(b.c[i] & F_NODISSOLVE) && (RU.allMask >> col(b.c[i]) & 1)) in.allLeft++;
     in.after = b;
     return in;
 }
@@ -202,6 +205,7 @@ int goalsCount(const Info& in, int pos) {
     g += RU.firstExact < 0 || in.first == RU.firstExact;
     g += !(in.firstMask & RU.antiMask);
     g += (in.mask & RU.elemMask) == RU.elemMask;
+    g += in.allLeft == 0;
     g += !RU.shieldN || in.shieldBroken;
     return g;
 }
@@ -217,6 +221,7 @@ bool goalsOk(const Info& in, int pos) {
     if (RU.firstExact >= 0 && in.first != RU.firstExact) return false;
     if (in.firstMask & RU.antiMask) return false;
     if ((in.mask & RU.elemMask) != RU.elemMask) return false;
+    if (in.allLeft) return false;
     if (RU.shieldN && !in.shieldBroken) return false;
     return true;
 }
@@ -268,6 +273,7 @@ void score(State& s) {
     if (RU.first3Only) w -= (in.firstOrbs - 3 * in.first) * 600;
     w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
+    w -= in.allLeft * 400.0f * cfg.allBoost;   // 必消（全部）：每剩一顆扣分，引導把那個顏色全部消光
     if (RU.shieldN)
         w += (in.shieldCover == RU.shieldN ? 2800 + RU.shieldN * 300
                                            : in.shieldCover * in.shieldCover * cfg.shieldGuide)
@@ -441,6 +447,7 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
     if (n >= RULES_INTS) out.firstAttrMin = std::max(0, v[RULES_INTS_V1]);
     if (n >= RULES_INTS) out.firstOrbsExact = std::max(0, v[RULES_INTS_V1 + 1]);
     if (n >= RULES_INTS) out.first3Only = v[RULES_INTS_V1 + 2] != 0;
+    if (n >= RULES_INTS) out.allMask = v[RULES_INTS_V1 + 3] & 0x3F;
     return true;
 }
 
@@ -473,6 +480,24 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
             if (beamSearch(b, cand) && better(cand, best)) best = cand;
         }
         X.cfg.shieldColor = -1;
+        X.cfg.beam = cfg.beam;
+    }
+    // 必消（全部消光）1～2 色沒湊到：加重引導再找（最多多用到 timeBudget 的 1.5 倍，不讓思考太久）；
+    // 3 色以上不多花時間（沒湊到由 App 提示使用者自己處理）
+    if (rules.allMask && !best.ok && __builtin_popcount(rules.allMask) <= 2) {
+        const double cap = cfg.timeBudgetMs > 0 ? cfg.timeBudgetMs * 1.5 : 0;
+        auto fitsAll = [&](int beam) { return cap <= 0 || elapsed() + perBeam * beam * 1.15 <= cap; };
+        const float boosts[] = {3.0f, 8.0f};
+        const int beams[] = {900, 1500};
+        for (int k = 0; k < 2 && !best.ok; k++) {
+            const int bm = std::max(cfg.beam, beams[k]);
+            if (!fitsAll(bm)) break;
+            X.cfg.allBoost = boosts[k];
+            X.cfg.beam = bm;
+            State cand;
+            if (beamSearch(b, cand) && better(cand, best)) best = cand;
+        }
+        X.cfg.allBoost = cfg.allBoost;
         X.cfg.beam = cfg.beam;
     }
     // 2) 時間還夠：beam ×3 重算（更多 combo／更接近條件）
