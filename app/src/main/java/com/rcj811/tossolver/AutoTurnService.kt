@@ -536,7 +536,8 @@ class AutoTurnService : AccessibilityService() {
                 solveAndAct(rec, geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "拖曳被中斷") }
             }
             // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
-            if (forced != null && forced.firstOrbsExact > 0) go() else withNum(frame, geo) { go() }
+            // 「關」按完成：直接照面板設定的條件轉，不再讀 NUM 數字（省時間）
+            if (forced != null) go() else withNum(frame, geo) { go() }
         }
     }
 
@@ -782,7 +783,8 @@ class AutoTurnService : AccessibilityService() {
         val presetIdx = activePreset
         val hardStage = presetIdx in presets.indices && presets[presetIdx].hard
         // 自我學習：這關常常破不了 → 自動提高搜尋品質
-        val beam = if (hardStage) maxOf(settings.beam, 1500) else settings.beam
+        // 難關不再固定用大範圍（太慢）：從標準範圍開始，時間內自動加寬
+        val beam = settings.beam
         val maxPath = settings.maxPathFor(geo.rows)
         val dirs = settings.dirs
         val budget = settings.solveBudgetMs
@@ -790,17 +792,8 @@ class AutoTurnService : AccessibilityService() {
         val ruleInts = stage.toInts(goCell)
         val hasStage = !stage.isEmpty()
         worker.execute { try {
-            var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
-            // 關卡條件沒全部符合：用更大的搜尋範圍再找一次
-            // （嚴格模式再加大一次，盡量找到完全符合的轉法）
-            if (res.found && !res.goalsMet && hasStage) {
-                val again = SolveResult.from(NativeSolver.solve(cells, geo.rows, maxOf(1500, beam * 2), maxPath, dirs, ruleInts, 0))
-                if (again.goalsMet) res = again
-            }
-            if (res.found && !res.goalsMet && hasStage && strictTurn) {
-                val again = SolveResult.from(NativeSolver.solve(cells, geo.rows, 5000, maxPath, dirs, ruleInts, 0))
-                if (again.goalsMet) res = again
-            }
+            // 一次計算：拼圖盾換色重找、加寬搜尋、整盤清光都在同一個時間上限內完成（時間到就用目前最好的）
+            val res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
             main.post {
                 lastNoMove = false
                 if (!res.found || res.dirs.isEmpty()) {
@@ -1214,7 +1207,7 @@ class AutoTurnService : AccessibilityService() {
                 // 存好條件後照這組條件「只轉這一回合」（等面板消失再截圖）
                 val forced = StageRules().apply { copyFrom(edit) }
                 if (!forced.isEmpty()) toast("照條件轉一次：${forced.summary()}")
-                main.postDelayed({ if (!running && !busy) onOnceTap(forced) }, 400)
+                main.postDelayed({ if (!running && !busy) onOnceTap(forced) }, 250)
             },
         ))
         refresh()

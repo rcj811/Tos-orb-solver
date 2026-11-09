@@ -451,28 +451,22 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
     Solution r;
     State best;
     if (!beamSearch(b, best)) return r;
-    if (cfg.timeBudgetMs > 0) {
-        // 計算時間還夠：beam ×3 重算，直到時間用完或 beam 太大
-        int beam = cfg.beam;
-        for (int round = 0; round < 4; round++) {
-            double used = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-            double lastCost = used;   // 下一輪約是上一輪的 3 倍以上
-            if (used + lastCost * 3.5 > cfg.timeBudgetMs || beam * 3 > 20000) break;
-            beam *= 3;
-            X.cfg.beam = beam;
-            State cand;
-            if (beamSearch(b, cand) && better(cand, best)) best = cand;
-        }
-        X.cfg.beam = cfg.beam;
-    }
-    // 拼圖盾還沒破：逐一指定顏色（盤面上該色夠多的）再找，盾格分開時特別有用
+    // ---- 之後的加強搜尋全部放在同一個時間上限內（timeBudgetMs；0 = 不限時間）----
+    auto elapsed = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); };
+    const double perBeam = std::max(elapsed(), 1.0) / std::max(cfg.beam, 1);   // 每 1 單位 beam 約花多少毫秒
+    auto fits = [&](int beam, int times) {
+        return cfg.timeBudgetMs <= 0 || elapsed() + perBeam * beam * times * 1.15 <= cfg.timeBudgetMs;
+    };
+    // 1) 拼圖盾還沒破：逐一指定顏色（盤面上該色夠多的）再找
     if (rules.shieldN && !best.ok && cfg.shieldColor < 0) {
         int cnt[8] = {};
         for (int i = 0; i < cfg.rows * COLS; i++)
             if (cells[i] != EMPTY && !(cells[i] & F_NODISSOLVE)) cnt[orbColor(cells[i])]++;
-        X.cfg.beam = std::max(cfg.beam, 900);
+        const int sb = std::max(cfg.beam, 900);
+        X.cfg.beam = sb;
         for (int c = 0; c < 6 && !best.ok; c++) {
             if (cnt[c] < std::max(3, rules.shieldN)) continue;
+            if (!fits(sb, 1)) break;
             X.cfg.shieldColor = c;
             State cand;
             if (beamSearch(b, cand) && better(cand, best)) best = cand;
@@ -480,8 +474,20 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
         X.cfg.shieldColor = -1;
         X.cfg.beam = cfg.beam;
     }
-    // 整盤清光：每種顏色都是 0 顆或 ≥3 顆時才可能。用「重視消珠數」的權重再找一次，
-    // 只有 combo 不變少、消的珠更多時才換（better() 先比條件、再比 combo、再比消珠數）
+    // 2) 時間還夠：beam ×3 重算（更多 combo／更接近條件）
+    if (cfg.timeBudgetMs > 0) {
+        int beam = cfg.beam;
+        for (int round = 0; round < 4; round++) {
+            if (beam * 3 > 20000 || !fits(beam * 3, 1)) break;
+            beam *= 3;
+            X.cfg.beam = beam;
+            State cand;
+            if (beamSearch(b, cand) && better(cand, best)) best = cand;
+        }
+        X.cfg.beam = cfg.beam;
+    }
+    // 3) 整盤清光：每種顏色都是 0 顆或 ≥3 顆時才可能。用「重視消珠數」的權重再找，
+    //    只有 combo 不變少、消的珠更多時才換（better() 先比條件、再比 combo、再比消珠數）
     if (cfg.tryFullClear && cfg.preferOrbs) {
         int cnt[8] = {}, total = 0;
         for (int i = 0; i < cfg.rows * COLS; i++)
@@ -490,9 +496,11 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
         for (int c = 0; c < 6; c++) if (cnt[c] == 1 || cnt[c] == 2) possible = false;
         if (possible && resolve(best.b).cleared < total) {
             float w3 = X.cfg.weights[3];
+            const int fb = std::max(cfg.beam, 900);
             for (float mul : {3.0f, 6.0f}) {
+                if (!fits(fb, 1)) break;
                 X.cfg.weights[3] = w3 * mul;
-                X.cfg.beam = std::max(cfg.beam, 900);
+                X.cfg.beam = fb;
                 State cand;
                 if (beamSearch(b, cand) && better(cand, best)) best = cand;
                 if (resolve(best.b).cleared >= total) break;
