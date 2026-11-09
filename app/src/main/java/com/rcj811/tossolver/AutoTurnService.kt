@@ -1005,7 +1005,7 @@ class AutoTurnService : AccessibilityService() {
         val attrChoices = intArrayOf(0, 4, 5, 6, 7, 8)
         fun attrLabel() = if (edit.firstAttrMin == 0) "首消屬性盾：無" else "首消屬性 ≥${edit.firstAttrMin}"
         val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
-        val orbsChoices = intArrayOf(0) + (10..20).toList().toIntArray()
+        val orbsChoices = intArrayOf(0) + (10..24).toList().toIntArray()
         fun orbsLabel() = if (edit.firstOrbsExact == 0) "NUM盾：無" else "NUM盾：剛好 ${edit.firstOrbsExact} 粒"
         val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsExact = cycle(orbsChoices, edit.firstOrbsExact); b.text = orbsLabel(); refresh() }
         fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
