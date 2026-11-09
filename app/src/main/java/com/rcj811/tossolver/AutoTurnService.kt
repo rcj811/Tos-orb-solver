@@ -53,6 +53,7 @@ import kotlin.math.abs
 class AutoTurnService : AccessibilityService() {
 
     companion object {
+        private const val NO_BOARD_PAUSE_MS = 15_000L   // 看不到盤面多久就暫停自動轉珠
         @Volatile
         var instance: AutoTurnService? = null
             private set
@@ -112,6 +113,22 @@ class AutoTurnService : AccessibilityService() {
     private var lastActed: IntArray? = null
     private var lastActedAt = 0L
     private var lastBoardAt = 0L      // 上次看到轉珠盤面的時間
+    private var lastTickAt = 0L       // 自動執行上次處理畫面的時間（看門狗用）
+
+    /** 看門狗：自動執行中超過 25 秒沒有進展（手勢或截圖沒回應），把迴圈重新接上，不停住 */
+    private val watchdog = object : Runnable {
+        override fun run() {
+            if (!running) return
+            val now = SystemClock.uptimeMillis()
+            if (now - lastTickAt > 25_000) {
+                lastTickAt = now
+                busy = false
+                main.removeCallbacks(autoTick)
+                main.post(autoTick)
+            }
+            main.postDelayed(this, 5_000)
+        }
+    }
     private var turnsDone = 0
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -452,6 +469,7 @@ class AutoTurnService : AccessibilityService() {
         updateBar()
         Toast.makeText(this, "讀到王的技能：${parse.skills.joinToString("、")}\n${parse.summary()}", Toast.LENGTH_LONG).show()
         if (!auto) return
+        lastActionAt = SystemClock.uptimeMillis()
         // 需要補充的機制：提示，但先照已讀到的條件繼續轉，不停住
         if (parse.manual.isNotEmpty()) toast("這個王有需要你補充的機制：${parse.manual.joinToString("、")}（可之後按「關」補充），先照已讀到的條件轉")
         next(400)   // 重新截圖：這次就會套用剛記住的條件
@@ -568,6 +586,9 @@ class AutoTurnService : AccessibilityService() {
         lastActionAt = SystemClock.uptimeMillis()
         presets = presetStore.load()
         lastBoardAt = SystemClock.uptimeMillis()
+        lastTickAt = SystemClock.uptimeMillis()
+        main.removeCallbacks(watchdog)
+        main.postDelayed(watchdog, 5_000)
         updateBar()
         val stageText = if (!stage.isEmpty()) "\n照關卡條件轉珠：${stage.summary()}" else ""
         toast("[${appVersion(this)}] 自動執行：開始（每回合轉最高 combo）" + stageText)
@@ -599,6 +620,7 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun onAutoFrame(frame: Frame?) {
+        lastTickAt = SystemClock.uptimeMillis()
         if (!running) { busy = false; updateBar(); return }
         if (frame == null) { next(800); return }
         val now = SystemClock.uptimeMillis()
@@ -666,6 +688,7 @@ class AutoTurnService : AccessibilityService() {
                             return@solveAndAct
                         }
                         if (ok) turnsDone++
+                        lastActionAt = SystemClock.uptimeMillis()   // 從轉完開始算（之後還有消珠、攻擊、換關動畫）
                         next(if (ok) 2500 else 1000)
                     }
                     }
@@ -677,8 +700,8 @@ class AutoTurnService : AccessibilityService() {
         }
         if (!ready) { stableCount = 0; lastSeen = null; waitingSince = 0L }
 
-        // 偵測不到轉珠盤面 8 秒：自動暫停
-        if (!ready && now - lastBoardAt > 8_000L && now - lastActionAt > 8_000L) {
+        // 偵測不到轉珠盤面 15 秒（從上次轉完算起，換關動畫也不會誤判）：自動暫停
+        if (!ready && now - lastBoardAt > NO_BOARD_PAUSE_MS && now - lastActionAt > NO_BOARD_PAUSE_MS) {
             busy = false
             stopAuto("沒有偵測到轉珠盤面（$unknown 格認不出來），自動轉珠已暫停。\n解決：回到戰鬥畫面後按 ▶；如果盤面明明在，按「校」對齊格線、點問號確認後再按 ▶")
             return
