@@ -717,7 +717,7 @@ class AutoTurnService : AccessibilityService() {
         val hasStage = !stage.isEmpty()
         worker.execute { try {
             // 一次計算：拼圖盾換色重找、加寬搜尋、整盤清光都在同一個時間上限內完成（時間到就用目前最好的）
-            val res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
+            var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
             main.post {
                 lastNoMove = false
                 if (!res.found || res.dirs.isEmpty()) {
