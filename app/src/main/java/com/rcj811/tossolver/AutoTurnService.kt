@@ -969,10 +969,10 @@ class AutoTurnService : AccessibilityService() {
             textSize = 15f
             setPadding(dp(4), dp(2), dp(4), dp(4))
         }
-        fun refresh() {
-            summary.text = "目前：${edit.summary()}　［${appVersion(this)}］\n選一種筆刷後點下方盤面格子（再點一次取消）。按「完成」＝照這些條件只轉這一回合。"
-            board.invalidate()
-        }
+        // 點擊邏輯都在 StagePanelModel（條件模組產生按鈕），這裡只負責畫
+        val model = StagePanelModel(edit)
+        val refreshers = ArrayList<() -> Unit>()
+        val picker = LinearLayout(themed).apply { orientation = LinearLayout.VERTICAL }
         fun btn(label: String, onClick: (Button) -> Unit) = Button(themed).apply {
             text = label
             isAllCaps = false
@@ -986,79 +986,58 @@ class AutoTurnService : AccessibilityService() {
             orientation = LinearLayout.HORIZONTAL
             for (v in vs) addView(v, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
+        lateinit var refresh: () -> Unit
+        // 選項列：數值條件打開時，在說明文字下面列出全部選項（每列 6 個），點一個就設定好
+        fun buildPicker() {
+            picker.removeAllViews()
+            val c = model.open ?: return
+            val sel = c.selected(edit)
+            // 選項字比較長（例如「十字≥2」）每列 4 個，短的（數字）每列 6 個，手機上才不會擠
+            val per = if (c.options.any { it.length > 3 }) 4 else 6
+            c.options.chunked(per).forEachIndexed { row, opts ->
+                val line = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL }
+                opts.forEachIndexed { j, o ->
+                    val k = row * per + j
+                    val chip = btn((if (k == sel) "● " else "") + o) { model.pickOption(k); refresh() }
+                    chip.setBackgroundColor(if (k == sel) Color.rgb(46, 125, 50) else Color.rgb(55, 71, 79))
+                    chip.setTextColor(Color.WHITE)
+                    line.addView(chip, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+                }
+                for (j in opts.size until per) line.addView(View(themed), LinearLayout.LayoutParams(0, 1, 1f))
+                picker.addView(line)
+            }
+        }
+        refresh = {
+            summary.text = model.status() + "　［${appVersion(this)}］"
+            summary.setTextColor(if (model.hasConflicts()) Color.rgb(255, 205, 210) else Color.WHITE)
+            for (r in refreshers) r()
+            buildPicker()
+            // 選項列移到剛點的按鈕那一列正下方，手指不用移遠
+            (picker.parent as? LinearLayout)?.removeView(picker)
+            val anchor = model.open?.let { buttonRow[it] }
+            if (anchor != null) panel.addView(picker, panel.indexOfChild(anchor) + 1)
+            board.invalidate()
+        }
 
         // 筆刷：點盤面格子時要設定的機制
-        val brushNames = arrayOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)", "裂痕", "起點(綠)", "終點(紅)", "必消(點珠)", "不消(點珠)", "不碰(點珠)")
-        val brushButtons = ArrayList<Button>()
-        var brush = 0
-        fun paintBrushes() {
-            for (k in brushButtons.indices) brushButtons[k].text = (if (k == brush) "● " else "") + brushNames[k]
+        val brushButtons = model.brushes.mapIndexed { k, b ->
+            btn(model.label(b)) { model.selectBrush(k); refresh() }.also { v -> refreshers.add { v.text = model.label(b) } }
         }
-        for (k in brushNames.indices) brushButtons.add(btn(brushNames[k]) { brush = k; paintBrushes() })
-        paintBrushes()
-        board.onCellTap = { i ->
-            when (brush) {
-                0 -> edit.toggle(i, StageRules.SHIELD)
-                1 -> edit.toggle(i, StageRules.NO_TOUCH)
-                2 -> edit.toggle(i, StageRules.FLAME_END)
-                3 -> edit.toggle(i, StageRules.BLACK_HOLE)
-                4 -> edit.toggle(i, StageRules.CRACK)
-                5 -> edit.green = if (edit.green == i) -1 else i
-                6 -> edit.red = if (edit.red == i) -1 else i
-                7 -> { edit.toggle(i, StageRules.MUST_ORB); if (edit.cellFlags[i] and StageRules.MUST_ORB != 0) edit.cellFlags[i] = edit.cellFlags[i] and StageRules.NO_ORB.inv() }
-                9 -> edit.toggle(i, StageRules.NOTOUCH_ORB)
-                8 -> { edit.toggle(i, StageRules.NO_ORB); if (edit.cellFlags[i] and StageRules.NO_ORB != 0) edit.cellFlags[i] = edit.cellFlags[i] and StageRules.MUST_ORB.inv() }
+        val buttonRow = HashMap<Ctl, View>()   // 每顆條件按鈕在哪一列（選項列放在那一列正下方）
+        board.onCellTap = { i -> model.tapCell(i); refresh() }
+
+        // 數值條件／開關：點一下（數值條件會打開選項列），長按＝回到「無」
+        val condButtons = model.buttons.map { c ->
+            btn(model.label(c)) { model.tapButton(c); refresh() }.also { v ->
+                v.setOnLongClickListener { model.longPressButton(c); refresh(); true }
+                refreshers.add { v.text = model.label(c) }
             }
-            refresh()
         }
 
-        // 盾 / 條件
-        val comboChoices = intArrayOf(0, 5, 6, 7, 8, 9, 10, 12)
-        fun cycle(a: IntArray, cur: Int): Int { val i = a.indexOf(cur); return a[if (i < 0) 0 else (i + 1) % a.size] }
-        fun comboLabel() = if (edit.comboMin == 0) "Combo盾：無" else "Combo盾 ≥${edit.comboMin}"
-        // 首消 Combo：剛好設定的數量（取代舊的「≥」與「固定首消」兩顆按鈕）
-        val firstExactChoices = intArrayOf(-1) + (1..10).toList().toIntArray()
-        fun firstLabel() = if (edit.firstExact < 0) "首消Combo：無" else "首消Combo：剛好 ${edit.firstExact}"
-        fun threeLabel() = "首消每組3顆：" + if (edit.first3Only) "開" else "關"
-        val comboBtn = btn(comboLabel()) { b -> edit.comboMin = cycle(comboChoices, edit.comboMin); b.text = comboLabel(); refresh() }
-        lateinit var threeBtn: Button
-        val firstBtn = btn(firstLabel()) { b ->
-            val was = edit.firstExact
-            edit.firstExact = cycle(firstExactChoices, edit.firstExact)
-            edit.firstMin = 0
-            // 設定首消 Combo 時預設「每組只能 3 顆」（不能有 4 顆連珠）；可再按右邊按鈕關掉
-            if (was < 0 && edit.firstExact > 0) edit.first3Only = true
-            if (edit.firstExact < 0) edit.first3Only = false
-            b.text = firstLabel(); threeBtn.text = threeLabel(); refresh()
-        }
-        threeBtn = btn(threeLabel()) { b -> edit.first3Only = !edit.first3Only; b.text = threeLabel(); refresh() }
-        val attrChoices = intArrayOf(0, 4, 5, 6, 7, 8)
-        fun attrLabel() = if (edit.firstAttrMin == 0) "首消屬性盾：無" else "首消屬性 ≥${edit.firstAttrMin}"
-        val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
-        val orbsChoices = intArrayOf(0) + (10..24).toList().toIntArray()
-        fun orbsLabel() = if (edit.firstOrbsExact == 0) "NUM盾：無" else "NUM盾：剛好 ${edit.firstOrbsExact} 粒"
-        // 形狀盾：無 → 十字≥1、≥2、≥3 → T 形≥1… → L 形≥1…
-        val shapeChoices = listOf(0 to 0) + (1..3).flatMap { t -> (1..3).map { t to it } }
-        fun shapeLabel() = if (edit.shapeMin == 0) "形狀盾：無" else "${StageRules.SHAPE_NAMES[edit.shapeType]}限盾 ≥${edit.shapeMin} 組"
-        val shapeBtn = btn(shapeLabel()) { b ->
-            val i = shapeChoices.indexOf(edit.shapeType to edit.shapeMin)
-            val (t, m) = shapeChoices[(i + 1) % shapeChoices.size]
-            edit.shapeType = t; edit.shapeMin = m
-            b.text = shapeLabel(); refresh()
-        }
-        val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsExact = cycle(orbsChoices, edit.firstOrbsExact); b.text = orbsLabel(); refresh() }
-        fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
-        fun fireLabel() = "火焰路徑：" + if (edit.firePath) "開" else "關"
-        val stickyBtn = btn(stickyLabel()) { b -> edit.sticky = !edit.sticky; b.text = stickyLabel(); refresh() }
-        val fireBtn = btn(fireLabel()) { b -> edit.firePath = !edit.firePath; b.text = fireLabel(); refresh() }
-        // 同色組數盾：下面勾 2～4 色，這顆按鈕切換每色幾組（每組 3 顆）
-        fun groupLabel() = "同色組數：各 ${edit.groupK} 組"
-        val groupBtn = btn(groupLabel()) { b -> edit.groupK = edit.groupK % 3 + 1; b.text = groupLabel(); refresh() }
-
-        // 屬性勾選：多屬性盾（必消）與反屬性（首消禁）
-        fun maskRow(title: String, get: () -> Int, set: (Int) -> Unit): LinearLayout {
+        // 顏色勾選列
+        fun maskRow(m: Ctl.Mask): LinearLayout {
             val row = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            row.addView(TextView(themed).apply { text = title; setTextColor(Color.WHITE); textSize = 15f; setPadding(dp(4), 0, dp(4), 0) })
+            row.addView(TextView(themed).apply { text = m.title; setTextColor(Color.WHITE); textSize = 15f; setPadding(dp(4), 0, dp(4), 0) })
             for (c in 0 until 6) {
                 val chip = TextView(themed).apply {
                     text = StageRules.ORB_SHORT[c]
@@ -1067,36 +1046,31 @@ class AutoTurnService : AccessibilityService() {
                     setTextColor(Color.WHITE)
                 }
                 fun paint() {
-                    val on = get() shr c and 1 == 1
+                    val on = m.get(edit) shr c and 1 == 1
                     chip.background = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
                         setColor(if (on) BoardView.ORB_COLORS[c] else Color.argb(90, 255, 255, 255))
                         if (on) setStroke(dp(2), Color.WHITE)
                     }
                 }
-                paint()
-                chip.setOnClickListener { set(get() xor (1 shl c)); paint(); refresh() }
+                refreshers.add { paint() }
+                chip.setOnClickListener { model.tapMask(m, c); refresh() }
                 row.addView(chip, LinearLayout.LayoutParams(dp(34), dp(34)).apply { setMargins(dp(3), dp(2), dp(3), dp(2)) })
             }
             return row
         }
 
         panel.addView(summary)
-        panel.addView(rowOf(brushButtons[0], brushButtons[1], brushButtons[2], brushButtons[3]))
-        panel.addView(rowOf(brushButtons[4], brushButtons[5], brushButtons[6]))
-        panel.addView(rowOf(brushButtons[7], brushButtons[8], brushButtons[9]))
-        panel.addView(rowOf(comboBtn, firstBtn, threeBtn))
-        panel.addView(rowOf(attrBtn, orbsBtn, shapeBtn))
-        panel.addView(rowOf(stickyBtn, fireBtn, groupBtn))
-        panel.addView(maskRow("首消必消(全部消光)", { edit.allMask }, { edit.allMask = it }))
-        panel.addView(maskRow("首消不能消(第一批)", { edit.antiMask }, { edit.antiMask = it }))
-        // 最多 4 色：第 5 色點了不會選上
-        panel.addView(maskRow("同色組數(選2~4色)", { edit.groupMask }, { if (Integer.bitCount(it) <= 4) edit.groupMask = it }))
+        // 筆刷照之前的 4、3、3 排；條件按鈕每列 3 顆
+        for (row in model.brushRows()) panel.addView(rowOf(*row.map { brushButtons[model.brushes.indexOf(it)] }.toTypedArray<View>()))
+        model.buttons.chunked(3).forEach { cs ->
+            val row = rowOf(*cs.map { condButtons[model.buttons.indexOf(it)] }.toTypedArray<View>())
+            for (c in cs) buttonRow[c] = row
+            panel.addView(row)
+        }
+        for (m in model.masks) panel.addView(maskRow(m))
         panel.addView(rowOf(
-            btn("清除全部") {
-                closeStagePanel()
-                showStagePanel(sig, presetIdx, StageRules())
-            },
+            btn("清除全部") { model.clearAll(); refresh() },
             btn("取消") { closeStagePanel() },
             btn("完成") {
                 closeStagePanel()
