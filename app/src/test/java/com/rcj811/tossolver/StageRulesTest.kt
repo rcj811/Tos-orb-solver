@@ -29,7 +29,7 @@ class StageRulesTest {
         r.toggle(2, StageRules.BLACK_HOLE)
         val v = r.toInts()
         assertEquals(StageRules.INTS, v.size)
-        assertEquals(112, v.size)                       // 與 tos_solver.h 的 RULES_INTS 相同
+        assertEquals(116, v.size)                       // 與 tos_solver.h 的 RULES_INTS 相同
         assertEquals(1, v[0])
         assertEquals(7, v[1]); assertEquals(4, v[2]); assertEquals(3, v[3])
         assertEquals(32, v[4]); assertEquals(7, v[5])
