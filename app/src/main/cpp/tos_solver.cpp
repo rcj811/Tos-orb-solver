@@ -23,10 +23,16 @@ inline int col(uint8_t v) { return v & 7; }
 struct Board { uint8_t c[MAXN]; };
 
 // 每個執行緒各自一份求解情境，可同時在多執行緒求解
+// 關卡條件模組編號（每個條件：有沒有設定、差多少、引導加分、加重倍數）
+enum CondId { K_END, K_ELEC, K_COMBO, K_FIRST, K_ATTR, K_NUM, K_3ONLY, K_FEXACT, K_ANTI, K_ELEM, K_ALL, K_SHAPE, K_SHIELD, K_GROUP, NCOND };
+
 struct Ctx {
     int R = 5, N = 30;
     Rules ru;
     Config cfg;
+    float boost[NCOND];   // 各條件的引導倍數（1 = 一般；沒湊到時加重再找）
+    int act[NCOND], nAct = 0;   // 有設定的條件（每次 solve 開始時算一次，評分時只跑這些）
+    Ctx() { for (float& v : boost) v = 1.0f; }
 };
 thread_local Ctx X;
 
@@ -91,7 +97,8 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 struct Info {
     int combos = 0, first = 0, firstOrbs = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
     int allLeft = 0;
-    int shapes = 0;    // 形狀盾：首批中剛好是指定形狀（5 粒同色）的組數   // 「必消（全部）」顏色還留在盤面上的珠數
+    int shapes = 0;    // 形狀盾：首批中剛好是指定形狀（5 粒同色）的組數
+    int grp[6] = {}, grp3[6] = {};   // 同色組數盾：首批每種顏色消了幾組、其中剛好 3 顆的幾組
     int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0, shieldHit = 0, shieldLeak = 0;
     bool shieldBroken = false;
     Board after;
@@ -147,8 +154,8 @@ Info resolve(Board b) {
         if (round == 0) {
             in.first = c;
             in.firstOrbs = orbs;
-            // 形狀盾：首批每一組相連的同色珠，剛好 5 粒並排成指定形狀才算一組
-            if (RU.shapeType && RU.shapeMin) {
+            // 首批每一組相連的同色珠：形狀盾（剛好 5 粒排成指定形狀）、同色組數盾（每色幾組、幾組剛好 3 顆）
+            if ((RU.shapeType && RU.shapeMin) || RU.groupMask) {
                 bool seen[MAXN] = {};
                 int stk[MAXN];
                 for (int i = 0; i < N; i++) {
@@ -165,7 +172,9 @@ Info resolve(Board b) {
                             if (mark[q] && !seen[q] && col(b.c[q]) == col(b.c[p])) { seen[q] = true; stk[sp++] = q; }
                         }
                     }
-                    if (n == 5 && isShape(xs, ys, RU.shapeType)) in.shapes++;
+                    const int k = col(b.c[i]);
+                    if (k < 6) { in.grp[k]++; if (n == 3) in.grp3[k]++; }
+                    if (RU.shapeType && n == 5 && isShape(xs, ys, RU.shapeType)) in.shapes++;
                 }
             }
             // 首消必消（全部消光）：這些顏色的珠要在第一批就全部消掉，沒被消的都算剩下（疊珠不算）
@@ -245,42 +254,6 @@ bool endOk(int pos) {
     return true;
 }
 
-/** 有設定的條件中，做到了幾項（全部做不到時，用來挑「最接近條件」的轉法） */
-int goalsCount(const Info& in, int pos) {
-    const Rules& RU = X.ru;
-    int g = 0;
-    g += endOk(pos);
-    g += in.elecLeft == 0;
-    g += in.combos >= RU.comboMin && in.first >= RU.firstMin;
-    g += in.firstAttr >= RU.firstAttrMin;
-    g += !RU.firstOrbsExact || in.firstOrbs == RU.firstOrbsExact;
-    g += !RU.first3Only || in.firstOrbs == 3 * in.first;
-    g += RU.firstExact < 0 || in.first == RU.firstExact;
-    g += !(in.firstMask & RU.antiMask);
-    g += (in.mask & RU.elemMask) == RU.elemMask;
-    g += in.allLeft == 0;
-    g += !RU.shapeMin || in.shapes >= RU.shapeMin;
-    g += !RU.shieldN || in.shieldBroken;
-    return g;
-}
-
-bool goalsOk(const Info& in, int pos) {
-    const Rules& RU = X.ru;
-    if (!endOk(pos)) return false;
-    if (in.elecLeft) return false;
-    if (in.combos < RU.comboMin || in.first < RU.firstMin) return false;
-    if (in.firstAttr < RU.firstAttrMin) return false;
-    if (RU.firstOrbsExact && in.firstOrbs != RU.firstOrbsExact) return false;
-    if (RU.first3Only && in.firstOrbs != 3 * in.first) return false;   // 每組都 3 顆 ⇔ 總數 = 3 × 組數
-    if (RU.firstExact >= 0 && in.first != RU.firstExact) return false;
-    if (in.firstMask & RU.antiMask) return false;
-    if ((in.mask & RU.elemMask) != RU.elemMask) return false;
-    if (in.allLeft) return false;
-    if (RU.shapeType && in.shapes < RU.shapeMin) return false;
-    if (RU.shieldN && !in.shieldBroken) return false;
-    return true;
-}
-
 struct State {
     Board b;
     int8_t pos, last, start;
@@ -290,7 +263,7 @@ struct State {
     int cleared;
     int first;
     int goals;     // 做到的條件數
-    int shapes;    // 形狀盾：首批做到的形狀組數
+    int deficit;   // 所有條件總共還差多少（0 = 全部做到）
     bool ok;
     uint64_t visited;
     uint8_t used[MAXN];
@@ -298,75 +271,174 @@ struct State {
     uint8_t path[MAX_PATH + 4];
 };
 
-void score(State& s) {
+// ===================== 關卡條件模組 =====================
+// 每個條件是一個模組：active（有沒有設定）、deficit（離做到還差多少，0 = 做到）、guide（引導搜尋的加分）。
+// 多個條件同時設定時：先比做到幾項，再比總共還差多少，最後才比 combo。
+// 沒全部做到時，只把「還沒做到的那幾個條件」的引導加重再找（cfg.timeBudgetMs 內）。
+
+bool condActive(int k) {
     const Rules& RU = X.ru;
+    switch (k) {
+        case K_END: return true;                                  // 終點限制（火焰區／黑洞／紅漩渦；沒有設定時永遠做到）
+        case K_ELEC: return true;                                 // 電擊／觸電（沒有時永遠做到）
+        case K_COMBO: return RU.comboMin > 0;
+        case K_FIRST: return RU.firstMin > 0;
+        case K_ATTR: return RU.firstAttrMin > 0;
+        case K_NUM: return RU.firstOrbsExact > 0;
+        case K_3ONLY: return RU.first3Only;
+        case K_FEXACT: return RU.firstExact >= 0;
+        case K_ANTI: return RU.antiMask != 0;
+        case K_ELEM: return RU.elemMask != 0;
+        case K_ALL: return RU.allMask != 0;
+        case K_SHAPE: return RU.shapeType && RU.shapeMin;
+        case K_SHIELD: return RU.shieldN > 0;
+        case K_GROUP: return RU.groupMask && RU.groupK > 0;
+    }
+    return false;
+}
+
+int groupDeficit(const Info& in) {
+    const Rules& RU = X.ru;
+    int d = 0;
+    for (int c = 0; c < 6; c++)
+        if (RU.groupMask >> c & 1) d += std::abs(in.grp[c] - RU.groupK) + (in.grp[c] - in.grp3[c]);
+    return d;
+}
+
+int condDeficit(int k, const Info& in, int pos) {
+    const Rules& RU = X.ru;
+    switch (k) {
+        case K_END: return !endOk(pos);
+        case K_ELEC: return in.elecLeft;
+        case K_COMBO: return std::max(0, RU.comboMin - in.combos);
+        case K_FIRST: return std::max(0, RU.firstMin - in.first);
+        case K_ATTR: return std::max(0, RU.firstAttrMin - in.firstAttr);
+        case K_NUM: return std::abs(in.firstOrbs - RU.firstOrbsExact);
+        case K_3ONLY: return in.firstOrbs - 3 * in.first;
+        case K_FEXACT: return std::abs(in.first - RU.firstExact);
+        case K_ANTI: return __builtin_popcount(in.firstMask & RU.antiMask);
+        case K_ELEM: return __builtin_popcount(RU.elemMask & ~in.mask);
+        case K_ALL: return in.allLeft;
+        case K_SHAPE: return std::max(0, RU.shapeMin - in.shapes);
+        case K_SHIELD:
+            return in.shieldBroken ? 0 : std::max(1, RU.shieldN - in.shieldHit + in.shieldLeak);
+        case K_GROUP: return groupDeficit(in);
+    }
+    return 0;
+}
+
+/** 十字形狀盾還沒湊齊：盤面上最接近十字的幾個中心（中心與上下左右同色的格數）加分 */
+float crossHint(const Board& b) {
+    const Rules& RU = X.ru;
+    const int N = X.N, R = X.R;
+    int best[4] = {0, 0, 0, 0};
+    for (int i = 0; i < N; i++) {
+        const int x = i % C, y = i / C;
+        if (x == 0 || x == C - 1 || y == 0 || y == R - 1 || b.c[i] == EMPTY) continue;
+        const int c0 = col(b.c[i]);
+        int m = 1;
+        for (int d = 0; d < 4; d++) {
+            const int q = (y + DY[d]) * C + x + DX[d];
+            if (b.c[q] != EMPTY && col(b.c[q]) == c0) m++;
+        }
+        for (int k = 0; k < 4; k++) if (m > best[k]) { for (int j = 3; j > k; j--) best[j] = best[j - 1]; best[k] = m; break; }
+    }
+    float w = 0;
+    for (int k = 0; k < std::min(RU.shapeMin, 4); k++) w += best[k] * best[k] * 120.0f;
+    return w;
+}
+
+/** 條件 k 的引導加分（乘上 X.boost[k]） */
+float condGuide(int k, const Info& in, const State& s, int deficit) {
+    const Rules& RU = X.ru;
+    const Config& cfg = X.cfg;
+    switch (k) {
+        case K_ELEC: return -in.elecLeft * 1500.0f;
+        case K_COMBO: return -deficit * 800.0f;
+        case K_FIRST: return -deficit * 800.0f + in.first * 400.0f;
+        case K_ATTR: return -deficit * 800.0f + in.firstAttr * 400.0f;
+        case K_NUM: return -deficit * 300.0f + (deficit == 0 ? 1500.0f : 0.0f);   // NUM：剛好 X 粒，多或少都扣
+        case K_3ONLY: return -deficit * 600.0f;
+        case K_FEXACT: return -deficit * 1500.0f;
+        case K_ANTI: return -deficit * 3000.0f;
+        case K_ELEM: return __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
+        case K_ALL: return -in.allLeft * 400.0f;
+        case K_SHAPE: {
+            float w = std::min(in.shapes, RU.shapeMin) * 1500.0f;
+            if (RU.shapeType == 1 && in.shapes < RU.shapeMin) w += crossHint(s.b);
+            return w;
+        }
+        case K_SHIELD:
+            return (in.shieldCover == RU.shieldN ? 2800 + RU.shieldN * 300
+                                                 : in.shieldCover * in.shieldCover * cfg.shieldGuide)
+                   + in.shieldHit * 250 - in.shieldLeak * 500;
+        case K_GROUP: {
+            // 每個指定顏色剛好 K 組 3 顆：做到的顏色加分，差的組數／多出來的珠扣分
+            int okc = 0;
+            for (int c = 0; c < 6; c++)
+                if ((RU.groupMask >> c & 1) && in.grp[c] == RU.groupK && in.grp3[c] == RU.groupK) okc++;
+            return okc * 900.0f - deficit * 700.0f;
+        }
+        case K_END: {
+            if (!deficit) return 300.0f;
+            // 還沒停在終點：離紅色漩渦（或最近的火焰區）越近越好，引導路徑往終點走
+            const Rules& R2 = X.ru;
+            const int x = s.pos % C, y = s.pos / C;
+            auto dist = [&](int q) {
+                const int dx = std::abs(q % C - x), dy = std::abs(q / C - y);
+                return X.cfg.dirs == 8 ? std::max(dx, dy) : dx + dy;
+            };
+            int d = 0;
+            if (R2.red >= 0) d = dist(R2.red);
+            else if (R2.anyFlame) { d = 99; for (int q = 0; q < X.N; q++) if (R2.flameEnd[q]) d = std::min(d, dist(q)); }
+            return -d * 250.0f;
+        }
+    }
+    return 0;
+}
+
+void initConds() {
+    X.nAct = 0;
+    for (int k = 0; k < NCOND; k++) { X.boost[k] = 1.0f; if (condActive(k)) X.act[X.nAct++] = k; }
+}
+
+bool goalsOk(const Info& in, int pos) {
+    for (int i = 0; i < X.nAct; i++) if (condDeficit(X.act[i], in, pos)) return false;
+    return true;
+}
+
+void score(State& s) {
     const Config& cfg = X.cfg;
     Info in = resolve(s.b);
     s.combos = in.combos;
     s.cleared = in.cleared;
     s.first = in.first;
-    s.goals = goalsCount(in, s.pos);
-    s.shapes = in.shapes;
     float f[NUM_FEATURES];
     features(in, s.len, f);
     float w = in.combos * 1000.0f;
     for (int i = 0; i < NUM_FEATURES; i++) w += cfg.weights[i] * f[i];
-    w -= in.elecLeft * 1500;
     w += in.weatherCleared * 200;
     w -= in.avoidCleared * 500;   // 盡量不要消除：兩顆約抵一個 combo
-    if (RU.comboMin && in.combos < RU.comboMin) w -= (RU.comboMin - in.combos) * 800;
-    if (RU.firstMin && in.first < RU.firstMin) w -= (RU.firstMin - in.first) * 800;
-    if (RU.firstMin) w += in.first * 400;
-    if (RU.firstAttrMin && in.firstAttr < RU.firstAttrMin) w -= (RU.firstAttrMin - in.firstAttr) * 800;
-    if (RU.firstAttrMin) w += in.firstAttr * 400;
-    // 首消符石數量盾：每差 1 粒扣分，引導搜尋把同色珠集中在第一批消除
-    // NUM 盾：首批要剛好 X 粒，多或少都扣分（距離越遠扣越多），剛好再加分
-    if (RU.firstOrbsExact) {
-        int d = std::abs(in.firstOrbs - RU.firstOrbsExact);
-        w -= d * 300;
-        if (d == 0) w += 1500;
+    int goals = 0, def = 0;
+    for (int i = 0; i < X.nAct; i++) {
+        const int k = X.act[i];
+        const int d = condDeficit(k, in, s.pos);
+        if (d == 0) goals++;
+        def += std::min(d, 6);    // 每個條件最多算差 6，避免單一條件蓋過其他條件
+        w += condGuide(k, in, s, d) * X.boost[k];
     }
-    if (RU.firstExact >= 0) w -= std::abs(in.first - RU.firstExact) * 1500;
-    if (RU.first3Only) w -= (in.firstOrbs - 3 * in.first) * 600;
-    w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
-    w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
-    w -= in.allLeft * 400.0f * cfg.allBoost;
-    if (RU.shapeType) {
-        w += std::min(in.shapes, RU.shapeMin) * 1500.0f * cfg.shapeBoost;   // 形狀盾：每多一組指定形狀加分
-        // 還沒湊齊：找盤面上最接近十字的位置（中心與上下左右同色的格數），取最好的幾個不重疊中心加分
-        if (RU.shapeType == 1 && in.shapes < RU.shapeMin) {
-            const int N = X.N, R = X.R;
-            int best[4] = {0, 0, 0, 0};
-            for (int i = 0; i < N; i++) {
-                const int x = i % C, y = i / C;
-                if (x == 0 || x == C - 1 || y == 0 || y == R - 1 || s.b.c[i] == EMPTY) continue;
-                const int c0 = col(s.b.c[i]);
-                int m = 1;
-                for (int d = 0; d < 4; d++) {
-                    const int q = (y + DY[d]) * C + x + DX[d];
-                    if (s.b.c[q] != EMPTY && col(s.b.c[q]) == c0) m++;
-                }
-                for (int k = 0; k < 4; k++) if (m > best[k]) { for (int j = 3; j > k; j--) best[j] = best[j - 1]; best[k] = m; break; }
-            }
-            for (int k = 0; k < std::min(RU.shapeMin, 4); k++) w += best[k] * best[k] * 120.0f * cfg.shapeBoost;
-        }
-    }   // 必消（全部）：每剩一顆扣分，引導把那個顏色全部消光
-    if (RU.shieldN)
-        w += (in.shieldCover == RU.shieldN ? 2800 + RU.shieldN * 300
-                                           : in.shieldCover * in.shieldCover * cfg.shieldGuide)
-           + in.shieldHit * 250 - in.shieldLeak * 500;
-    if (endOk(s.pos)) w += 300;
-    s.ok = goalsOk(in, s.pos);
+    s.goals = goals;
+    s.deficit = def;
+    s.ok = def == 0;
     if (s.ok) w += 20000;
     s.weight = w;
 }
 
 bool better(const State& a, const State& b) {
     if (a.ok != b.ok) return a.ok;
-    // 兩個都沒完全符合：先比做到幾項條件（例如拼圖盾＋首消 8 combo，不能為了 combo 放棄拼圖盾）
+    // 兩個都沒完全符合：先比做到幾項條件，再比總共還差多少（例如 2 組十字做不到時至少 1 組；拼圖盾＋首消 8 combo 不能為了 combo 放棄拼圖盾）
     if (!a.ok && a.goals != b.goals) return a.goals > b.goals;
-    // 形狀盾沒湊滿：多一組算一組（例如要 2 組十字，做不到時至少做 1 組，不能為了 combo 變成 0 組）
-    if (!a.ok && X.ru.shapeMin && a.shapes != b.shapes) return a.shapes > b.shapes;
+    if (!a.ok && a.deficit != b.deficit) return a.deficit < b.deficit;
     if (a.combos != b.combos) return a.combos > b.combos;
     if (X.cfg.prefer3) {
         // 同 combo：每組剛好 3 顆最好（多出來的珠越少越好），其次首消 combo 越多
@@ -487,10 +559,13 @@ bool beamSearch(const Board& init, State& bestOut) {
     return true;
 }
 
+void initConds();
+
 void setup(const uint8_t* cells, int rows, const Rules& rules, Board& b) {
     X.R = std::max(3, std::min(MAX_ROWS, rows));
     X.N = X.R * C;
     X.ru = rules;
+    initConds();
     std::memset(b.c, EMPTY, sizeof b.c);
     std::memcpy(b.c, cells, X.N);
 }
@@ -527,7 +602,12 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
     if (n >= RULES_INTS_V1 + 4) out.firstOrbsExact = std::max(0, v[RULES_INTS_V1 + 1]);
     if (n >= RULES_INTS_V1 + 4) out.first3Only = v[RULES_INTS_V1 + 2] != 0;
     if (n >= RULES_INTS_V1 + 4) out.allMask = v[RULES_INTS_V1 + 3] & 0x3F;
-    if (n >= RULES_INTS) { out.shapeType = std::clamp(v[RULES_INTS_V1 + 4], 0, 3); out.shapeMin = std::max(0, v[RULES_INTS_V1 + 5]); }
+    if (n >= RULES_INTS) {
+        out.shapeType = std::clamp(v[RULES_INTS_V1 + 4], 0, 3);
+        out.shapeMin = std::max(0, v[RULES_INTS_V1 + 5]);
+        out.groupMask = v[RULES_INTS_V1 + 6] & 0x3F;
+        out.groupK = std::clamp(v[RULES_INTS_V1 + 7], 0, 10);
+    }
     return true;
 }
 
@@ -562,39 +642,37 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
         X.cfg.shieldColor = -1;
         X.cfg.beam = cfg.beam;
     }
-    // 必消（全部消光）1～2 色沒湊到：加重引導再找（最多多用到 timeBudget 的 1.5 倍，不讓思考太久）；
-    // 3 色以上不多花時間（沒湊到由 App 提示使用者自己處理）
-    if (rules.allMask && !best.ok && __builtin_popcount(rules.allMask) <= 2) {
-        const double cap = cfg.timeBudgetMs > 0 ? cfg.timeBudgetMs * 1.5 : 0;
-        auto fitsAll = [&](int beam) { return cap <= 0 || elapsed() + perBeam * beam * 1.15 <= cap; };
-        const float boosts[] = {3.0f, 8.0f};
-        const int beams[] = {900, 1500};
-        for (int k = 0; k < 2 && !best.ok; k++) {
-            const int bm = std::max(cfg.beam, beams[k]);
-            if (!fitsAll(bm)) break;
-            X.cfg.allBoost = boosts[k];
-            X.cfg.beam = bm;
-            State cand;
-            if (beamSearch(b, cand) && better(cand, best)) best = cand;
+    // 還有條件沒做到：只把沒做到的條件引導加重再找（最多用到 timeBudget 的 1.5 倍，不讓思考太久）。
+    // 必消（全部消光）3 色以上不加重（沒湊到由 App 提示使用者自己處理）
+    if (!best.ok) {
+        Info bi = resolve(best.b);
+        bool weak[NCOND] = {};
+        bool any = false;
+        for (int k = 0; k < NCOND; k++) {
+            if (!condActive(k) || k == K_END || condDeficit(k, bi, best.pos) == 0) continue;
+            if (k == K_ALL && __builtin_popcount(rules.allMask) > 2) continue;
+            if (k == K_SHIELD) continue;   // 拼圖盾已經用換色再找處理
+            weak[k] = any = true;
         }
-        X.cfg.allBoost = cfg.allBoost;
-        X.cfg.beam = cfg.beam;
-    }
-    // 形狀盾沒湊滿：加重引導再找（最多用到 timeBudget 的 1.5 倍，不讓思考太久）
-    if (rules.shapeMin && !best.ok) {
-        const double cap = cfg.timeBudgetMs > 0 ? cfg.timeBudgetMs * 1.5 : 0;
-        auto fitsS = [&](int beam) { return cap <= 0 || elapsed() + perBeam * beam * 1.15 <= cap; };
+        // 形狀盾、必消（全部消光）跟上一版一樣最多到 1.5 倍時間；其他條件不多花時間
+        const double cap = cfg.timeBudgetMs <= 0 ? 0 : cfg.timeBudgetMs * (weak[K_SHAPE] || weak[K_ALL] ? 1.5 : 1.0);
+        auto fitsB = [&](int beam) { return cap <= 0 || elapsed() + perBeam * beam * 1.15 <= cap; };
         const float boosts[] = {3.0f, 6.0f};
         const int beams[] = {900, 1500};
-        for (int k = 0; k < 2 && !best.ok; k++) {
-            const int bm = std::max(cfg.beam, beams[k]);
-            if (!fitsS(bm)) break;
-            X.cfg.shapeBoost = boosts[k];
+        for (int r2 = 0; any && r2 < 2 && !best.ok; r2++) {
+            const int bm = std::max(cfg.beam, beams[r2]);
+            if (!fitsB(bm)) break;
+            for (int k = 0; k < NCOND; k++) X.boost[k] = weak[k] ? boosts[r2] : 1.0f;
             X.cfg.beam = bm;
             State cand;
-            if (beamSearch(b, cand) && better(cand, best)) best = cand;
+            if (beamSearch(b, cand)) {
+                // 用一般倍數重新評分後再比較，才公平
+                for (int k = 0; k < NCOND; k++) X.boost[k] = 1.0f;
+                score(cand);
+                if (better(cand, best)) best = cand;
+            }
         }
-        X.cfg.shapeBoost = cfg.shapeBoost;
+        for (int k = 0; k < NCOND; k++) X.boost[k] = 1.0f;
         X.cfg.beam = cfg.beam;
     }
     // 2) 時間還夠：beam ×3 重算（更多 combo／更接近條件）

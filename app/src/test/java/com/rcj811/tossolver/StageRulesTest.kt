@@ -172,6 +172,29 @@ class StageRulesTest {
     }
 
     @Test
+    fun colorGroupShield() {
+        // 光暗各 1 組（每組 3 顆）
+        val r = StageRules().apply { groupMask = (1 shl 3) or (1 shl 4); groupK = 1 }
+        assertFalse(r.isEmpty())
+        val v = r.toInts()
+        assertEquals(r.groupMask, v[114]); assertEquals(1, v[115])
+        val back = StageRules().apply { deserialize(r.serialize()) }
+        assertEquals(r.groupMask, back.groupMask); assertEquals(1, back.groupK)
+        assertTrue(r.summary().contains("光暗"))
+        assertEquals(null, r.firstBatchImpossible(IntArray(30) { it % 6 }))
+        // 只選 1 色 → 不送給求解器，並說明要選 2～4 色
+        val one = StageRules().apply { groupMask = 1 shl 3 }
+        assertEquals(0, one.toInts()[114])
+        assertTrue(one.conflicts(IntArray(30), IntArray(30) { it % 6 }).any { it.contains("2～4") })
+        // 和首消禁同色 → 矛盾
+        val anti = StageRules().apply { groupMask = 0b11000; antiMask = 0b1000 }
+        assertTrue(anti.conflicts(IntArray(30), IntArray(30) { it % 6 }).isNotEmpty())
+        // 每色 2 組要 6 顆，光只有 5 顆 → 做不到
+        val two = StageRules().apply { groupMask = 0b11000; groupK = 2 }
+        assertTrue(two.firstBatchImpossible(IntArray(30) { it % 6 }) != null)
+    }
+
+    @Test
     fun toggleTwiceClears() {
         val r = StageRules()
         r.toggle(10, StageRules.SHIELD)

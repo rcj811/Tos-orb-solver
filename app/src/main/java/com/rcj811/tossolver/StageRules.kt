@@ -38,17 +38,19 @@ class StageRules {
     var shapeType = 0      // 形狀盾：0 無、1 十字、2 T 形、3 L 形（首批以這個形狀消除 5 粒同色）
     var shapeMin = 0       // 形狀盾：至少幾組
     var allMask = 0        // 首消必消（全部消光，第一批就要消掉）：這些珠種盤面上的珠全部要消掉（3 的倍數每組 3 顆，不是就用 4、5 顆一組）
+    var groupMask = 0      // 同色組數盾：這些珠種（2～4 種）在第一批各消剛好 groupK 組、每組剛好 3 顆；其他珠種不限
+    var groupK = 1
     var sticky = false     // 黏手路徑：碰過的格不能再碰
     var firePath = false   // 火焰路徑：不要重踩剛走過的格
     var green = -1         // 綠漩渦：起點
     var red = -1           // 紅漩渦：終點
     val cellFlags = IntArray(MAX_CELLS)
 
-    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && firstOrbsExact == 0 && !first3Only && !unsureElec && antiMask == 0 && elemMask == 0 && allMask == 0 && shapeMin == 0 &&
+    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && firstOrbsExact == 0 && !first3Only && !unsureElec && antiMask == 0 && elemMask == 0 && allMask == 0 && shapeMin == 0 && groupMask == 0 &&
         !sticky && !firePath && green < 0 && red < 0 && cellFlags.all { it == 0 }
 
     fun clear() {
-        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; firstOrbsExact = 0; first3Only = false; unsureElec = false; antiMask = 0; elemMask = 0; allMask = 0; shapeType = 0; shapeMin = 0
+        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; firstOrbsExact = 0; first3Only = false; unsureElec = false; antiMask = 0; elemMask = 0; allMask = 0; shapeType = 0; shapeMin = 0; groupMask = 0; groupK = 1
         sticky = false; firePath = false; green = -1; red = -1
         cellFlags.fill(0)
     }
@@ -98,8 +100,15 @@ class StageRules {
         v[INTS_V1 + 3] = allMask
         v[INTS_V1 + 4] = if (shapeMin > 0) shapeType else 0
         v[INTS_V1 + 5] = shapeMin
+        v[INTS_V1 + 6] = if (groupActive()) groupMask else 0
+        v[INTS_V1 + 7] = if (groupActive()) groupK else 0
         return v
     }
+
+    /** 同色組數盾有效：選了 2～4 色 */
+    fun groupActive() = Integer.bitCount(groupMask) in 2..4 && groupK > 0
+
+    fun groupText() = "同色組數盾 ${maskText(groupMask)} 各 $groupK 組（每組 3 顆）"
 
     /** 必消（全部消光）的顏色名稱 */
     fun allMaskText() = maskText(allMask)
@@ -119,6 +128,7 @@ class StageRules {
         if (firstOrbsExact > 0) parts.add("NUM盾 首消剛好${firstOrbsExact}粒")
         if (elemMask != 0) parts.add("多屬性盾 ${maskText(elemMask)}")
         if (shapeMin > 0) parts.add("${SHAPE_NAMES[shapeType]}限盾 ≥$shapeMin 組")
+        if (groupMask != 0) parts.add(if (groupActive()) groupText() else "同色組數盾（要選 2～4 色）")
         if (allMask != 0) parts.add("首消必消 ${maskText(allMask)}（第一批全部消光）")
         if (antiMask != 0) parts.add("首消禁 ${maskText(antiMask)}")
         if (count(NO_TOUCH) > 0) parts.add("燃燒 ${count(NO_TOUCH)}")
@@ -136,7 +146,7 @@ class StageRules {
 
     fun copyFrom(o: StageRules) {
         comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact; firstAttrMin = o.firstAttrMin; firstOrbsExact = o.firstOrbsExact; first3Only = o.first3Only; unsureElec = o.unsureElec
-        antiMask = o.antiMask; elemMask = o.elemMask; allMask = o.allMask; shapeType = o.shapeType; shapeMin = o.shapeMin; sticky = o.sticky; firePath = o.firePath
+        antiMask = o.antiMask; elemMask = o.elemMask; allMask = o.allMask; shapeType = o.shapeType; shapeMin = o.shapeMin; groupMask = o.groupMask; groupK = o.groupK; sticky = o.sticky; firePath = o.firePath
         green = o.green; red = o.red
         o.cellFlags.copyInto(cellFlags)
     }
@@ -154,6 +164,7 @@ class StageRules {
         elemMask = elemMask or o.elemMask
         allMask = allMask or o.allMask
         if (o.shapeMin > 0) { shapeType = o.shapeType; shapeMin = o.shapeMin }
+        if (o.groupMask != 0) { groupMask = o.groupMask; groupK = o.groupK }
         sticky = sticky || o.sticky
         firePath = firePath || o.firePath
         if (o.green >= 0) green = o.green
@@ -216,6 +227,16 @@ class StageRules {
             val most = cnt.maxOrNull() ?: 0
             if (most < maxOf(3, shieldN)) out.add("拼圖盾有 $shieldN 格，要同一種顏色鋪滿，但這盤同色可消的珠最多只有 $most 顆")
         }
+        // 同色組數盾和其他首消條件互相矛盾
+        if (groupMask != 0) {
+            val n2 = Integer.bitCount(groupMask)
+            if (n2 !in 2..4) out.add("同色組數盾要選 2～4 種顏色（現在選了 $n2 種）")
+            else {
+                if (groupMask and antiMask != 0) out.add("同色組數盾要消 ${maskText(groupMask and antiMask)}，但首消禁 ${maskText(antiMask)}，兩個條件矛盾")
+                if (firstExact in 0 until n2 * groupK) out.add("同色組數盾第一批至少 ${n2 * groupK} 組，但首消剛好 $firstExact Combo，兩個條件矛盾")
+                if (firstOrbsExact in 1 until n2 * groupK * 3) out.add("同色組數盾第一批至少 ${n2 * groupK * 3} 粒，但 NUM 盾剛好 $firstOrbsExact 粒，兩個條件矛盾")
+            }
+        }
         firstBatchImpossible(colors)?.let { out.add(it) }
         return out
     }
@@ -244,6 +265,15 @@ class StageRules {
             for (c in colors) if (c in 0..5) cnt[c]++
             val most = cnt.sumOf { it / 5 }
             if (most < shapeMin) return "${SHAPE_NAMES[shapeType]}限盾要 $shapeMin 組（每組 5 粒同色），這盤最多只能湊 $most 組"
+        }
+        // 同色組數盾：每個指定顏色，盤面上至少要 3 × 組數 顆
+        if (groupActive()) {
+            val all = IntArray(6)
+            for (c in colors) if (c in 0..5) all[c]++
+            val need = 3 * groupK
+            val short = (0 until 6).filter { (groupMask shr it and 1) == 1 && all[it] < need }
+            if (short.isNotEmpty())
+                return "${groupText()}，每色至少要 $need 顆，但這盤 " + short.joinToString("、") { "${ORB_SHORT[it]}只有 ${all[it]} 顆" }
         }
         // 必消（全部消光）：那個顏色盤面上能消的珠要 ≥3 顆（3、4、5 顆一組可以湊出任何 ≥3 的數量）
         if (allMask != 0) {
@@ -284,7 +314,7 @@ class StageRules {
 
     /** 簡單文字格式（存檔用）：key=value;... */
     fun serialize(): String = listOf(
-        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "fo=$firstOrbsExact", "f3=${if (first3Only) 1 else 0}", "ue=${if (unsureElec) 1 else 0}", "a=$antiMask", "e=$elemMask", "am=$allMask", "sh=$shapeType", "sm=$shapeMin",
+        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "fo=$firstOrbsExact", "f3=${if (first3Only) 1 else 0}", "ue=${if (unsureElec) 1 else 0}", "a=$antiMask", "e=$elemMask", "am=$allMask", "sh=$shapeType", "sm=$shapeMin", "gm=$groupMask", "gk=$groupK",
         "s=${if (sticky) 1 else 0}", "p=${if (firePath) 1 else 0}", "g=$green", "r=$red",
         "cells=" + cellFlags.joinToString(","),
     ).joinToString(";")
@@ -309,6 +339,8 @@ class StageRules {
                 "am" -> allMask = v.toIntOrNull() ?: 0
                 "sh" -> shapeType = (v.toIntOrNull() ?: 0).coerceIn(0, 3)
                 "sm" -> shapeMin = v.toIntOrNull() ?: 0
+                "gm" -> groupMask = (v.toIntOrNull() ?: 0) and 0x3F
+                "gk" -> groupK = (v.toIntOrNull() ?: 1).coerceIn(1, 3)
                 "s" -> sticky = v == "1"
                 "p" -> firePath = v == "1"
                 "g" -> green = v.toIntOrNull() ?: -1

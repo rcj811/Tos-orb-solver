@@ -1051,6 +1051,9 @@ class AutoTurnService : AccessibilityService() {
         fun fireLabel() = "火焰路徑：" + if (edit.firePath) "開" else "關"
         val stickyBtn = btn(stickyLabel()) { b -> edit.sticky = !edit.sticky; b.text = stickyLabel(); refresh() }
         val fireBtn = btn(fireLabel()) { b -> edit.firePath = !edit.firePath; b.text = fireLabel(); refresh() }
+        // 同色組數盾：下面勾 2～4 色，這顆按鈕切換每色幾組（每組 3 顆）
+        fun groupLabel() = "同色組數：各 ${edit.groupK} 組"
+        val groupBtn = btn(groupLabel()) { b -> edit.groupK = edit.groupK % 3 + 1; b.text = groupLabel(); refresh() }
 
         // 屬性勾選：多屬性盾（必消）與反屬性（首消禁）
         fun maskRow(title: String, get: () -> Int, set: (Int) -> Unit): LinearLayout {
@@ -1084,9 +1087,11 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(rowOf(brushButtons[7], brushButtons[8], brushButtons[9]))
         panel.addView(rowOf(comboBtn, firstBtn, threeBtn))
         panel.addView(rowOf(attrBtn, orbsBtn, shapeBtn))
-        panel.addView(rowOf(stickyBtn, fireBtn))
+        panel.addView(rowOf(stickyBtn, fireBtn, groupBtn))
         panel.addView(maskRow("首消必消(全部消光)", { edit.allMask }, { edit.allMask = it }))
         panel.addView(maskRow("首消不能消(第一批)", { edit.antiMask }, { edit.antiMask = it }))
+        // 最多 4 色：第 5 色點了不會選上
+        panel.addView(maskRow("同色組數(選2~4色)", { edit.groupMask }, { if (Integer.bitCount(it) <= 4) edit.groupMask = it }))
         panel.addView(rowOf(
             btn("清除全部") {
                 closeStagePanel()

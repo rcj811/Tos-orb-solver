@@ -342,6 +342,58 @@ int main() {
         CHECK(ok >= n * 0.6, "十字限盾 ≥2 組大多做得到");
     }
 
+    {
+        // 同色組數盾：指定 2～4 色，首批每色各剛好 K 組、每組剛好 3 顆（其他顏色不限）
+        int v[RULES_INTS] = {0}; v[0] = 1; v[3] = -1; v[8] = 6; v[10] = -1; v[11] = -1;
+        for (int i = 0; i < MAX_CELLS; i++) v[12 + MAX_CELLS + i] = -1;
+        auto indep = [&](const uint8_t* cells, const Solution& so, int mask, int K) {
+            // 獨立重算：照路徑移動後，找首批三連，數每色的組數與每組顆數
+            uint8_t b[30]; std::memcpy(b, cells, 30);
+            int p = so.start;
+            const int dx[8] = {1, 0, -1, 0, 1, -1, -1, 1}, dy[8] = {0, 1, 0, -1, 1, 1, -1, -1};
+            for (int d : so.dirs) { int q = (p / 6 + dy[d]) * 6 + p % 6 + dx[d]; std::swap(b[p], b[q]); p = q; }
+            bool m[30] = {};
+            for (int y = 0; y < 5; y++) for (int x = 0; x < 4; x++) { int i = y * 6 + x; if (b[i] == b[i + 1] && b[i] == b[i + 2]) m[i] = m[i + 1] = m[i + 2] = true; }
+            for (int x = 0; x < 6; x++) for (int y = 0; y < 3; y++) { int i = y * 6 + x; if (b[i] == b[i + 6] && b[i] == b[i + 12]) m[i] = m[i + 6] = m[i + 12] = true; }
+            int g[6] = {}, g3[6] = {}; bool seen[30] = {};
+            for (int i = 0; i < 30; i++) {
+                if (!m[i] || seen[i]) continue;
+                int st[30], sp = 0, n = 0; st[sp++] = i; seen[i] = true;
+                while (sp) { int a = st[--sp]; n++; const int nb[4] = {a % 6 < 5 ? a + 1 : -1, a % 6 > 0 ? a - 1 : -1, a + 6 < 30 ? a + 6 : -1, a - 6};
+                    for (int q : nb) if (q >= 0 && m[q] && !seen[q] && b[q] == b[i]) { seen[q] = true; st[sp++] = q; } }
+                g[b[i]]++; if (n == 3) g3[b[i]]++;
+            }
+            for (int c = 0; c < 6; c++) if ((mask >> c & 1) && (g[c] != K || g3[c] != K)) return false;
+            return true;
+        };
+        struct Case { const char* name; int mask, K; } cases[] = {
+            {"光暗各 1 組", (1 << LIGHT) | (1 << DARK), 1},
+            {"木火光各 1 組", (1 << WOOD) | (1 << FIRE) | (1 << LIGHT), 1},
+            {"水木各 2 組", (1 << WATER) | (1 << WOOD), 2},
+        };
+        for (auto& cs : cases) {
+            v[RULES_INTS_V1 + 6] = cs.mask; v[RULES_INTS_V1 + 7] = cs.K;
+            Rules rg; rulesFromInts(v, RULES_INTS, rg);
+            CHECK(rg.groupMask == cs.mask && rg.groupK == cs.K, "同色組數盾可解碼");
+            std::mt19937 rq(33); int ok = 0, lie = 0, n = 0; double ms = 0;
+            for (int tries = 0; n < 20 && tries < 500; tries++) {
+                uint8_t bb[MAX_CELLS]; for (int i = 0; i < 30; i++) bb[i] = rq() % 6;
+                int cnt[6] = {}; for (int i = 0; i < 30; i++) cnt[bb[i]]++;
+                bool feas = true; for (int c = 0; c < 6; c++) if ((cs.mask >> c & 1) && cnt[c] < 3 * cs.K) feas = false;
+                if (!feas) continue;   // 盤面上該色不夠 3×組數 顆：App 會直接說明做不到
+                n++;
+                Config cc; cc.maxPath = 35; cc.timeBudgetMs = 1500;
+                Solution so = solve(bb, cc, rg); ms += so.ms;
+                bool real = indep(bb, so, cs.mask, cs.K);
+                if (so.goalsMet) ok++;
+                if (so.goalsMet != real) lie++;
+            }
+            std::printf("同色組數盾 %s：%d / %d，平均 %.0f ms\n", cs.name, ok, n, ms / n);
+            CHECK(lie == 0, "同色組數盾：求解器判定和獨立重算一致");
+            CHECK(ok >= n * 0.6, "同色組數盾大多做得到");
+        }
+    }
+
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);
     return failures ? 1 : 0;
 }
