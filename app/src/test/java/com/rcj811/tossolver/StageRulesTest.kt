@@ -172,6 +172,17 @@ class StageRulesTest {
     }
 
     @Test
+    fun userStartBeatsDetectedGo() {
+        // 「關」設的起點優先於盤面偵測到的 GO；沒設才用 GO
+        val r = StageRules().apply { green = 3; red = 29; shapeType = 2; shapeMin = 2 }
+        assertEquals(3, r.toInts(forceStart = 10)[10])
+        assertEquals(29, r.toInts(forceStart = 10)[11])
+        assertEquals(10, StageRules().apply { comboMin = 5 }.toInts(forceStart = 10)[10])
+        // T 形 ×2＋起終點不是衝突
+        assertTrue(r.conflicts(IntArray(30) { it % 6 }, IntArray(30) { it % 6 }).isEmpty())
+    }
+
+    @Test
     fun colorGroupShield() {
         // 光暗各 1 組（每組 3 顆）
         val r = StageRules().apply { groupMask = (1 shl 3) or (1 shl 4); groupK = 1 }

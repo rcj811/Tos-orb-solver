@@ -717,6 +717,10 @@ class AutoTurnService : AccessibilityService() {
         // 這關有電擊符石：認不出的珠多半是被閃電特效蓋住的電擊符石 → 用最可能的顏色，不碰、必須消
         if (stage.unsureElec) for (i in cells.indices) if (rec.isUnknown(i)) cells[i] = rec.colors[i] or 0x50
         stage.applyOrbMarks(cells)   // 自點必消 / 不消（只有按「完成」轉這一盤時才會有）
+        // 「關」標的起點（綠）／終點（紅）：漩渦圖案蓋在珠上，常常認不出顏色而被當成冰封（不能碰），
+        // 或被誤認成冰封等狀態，結果無法出發或停下來。使用者標了就一定是能碰的珠：拿掉「不能碰、不能消」
+        for (i in intArrayOf(stage.green, stage.red))
+            if (i in cells.indices) cells[i] = cells[i] and 0x60.inv()
         // 「關」的條件：真的互相衝突、這盤不可能做到 → 不轉，並說出哪裡衝突
         if (strictTurn && !stage.isEmpty()) {
             val bad = stage.conflicts(cells, feasColors(rec))
@@ -735,7 +739,8 @@ class AutoTurnService : AccessibilityService() {
         val maxPath = settings.maxPathFor(geo.rows)
         val dirs = settings.dirs
         val budget = settings.solveBudgetMs
-        val goCell = rec.startCell()
+        // 起點：「關」設定的起點優先，沒有設定才用盤面上偵測到的「GO」
+        val goCell = if (stage.green >= 0) stage.green else rec.startCell()
         val ruleInts = stage.toInts(goCell)
         val hasStage = !stage.isEmpty()
         worker.execute { try {

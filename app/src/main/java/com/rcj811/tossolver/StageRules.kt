@@ -84,7 +84,7 @@ class StageRules {
         v[6] = if (sticky) 1 else 0
         v[7] = if (firePath) 1 else 0
         v[8] = 6; v[9] = 0
-        v[10] = if (forceStart >= 0) forceStart else green; v[11] = red
+        v[10] = if (green >= 0) green else forceStart; v[11] = red   // 使用者設定的起點優先
         for (i in 0 until MAX_CELLS) {
             v[12 + i] = cellFlags[i] and ORB_MARKS.inv()   // 點珠標記改由珠子旗標傳入
             v[12 + MAX_CELLS + i] = -1
