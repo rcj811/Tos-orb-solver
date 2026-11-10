@@ -90,11 +90,36 @@ void removeAndDrop(Board& b, const bool mark[MAXN]) {
 
 struct Info {
     int combos = 0, first = 0, firstOrbs = 0, firstAttr = 0, firstMask = 0, mask = 0, cleared = 0;
-    int allLeft = 0;   // 「必消（全部）」顏色還留在盤面上的珠數
+    int allLeft = 0;
+    int shapes = 0;    // 形狀盾：首批中剛好是指定形狀（5 粒同色）的組數   // 「必消（全部）」顏色還留在盤面上的珠數
     int elecLeft = 0, weatherCleared = 0, avoidCleared = 0, shieldCover = 0, shieldHit = 0, shieldLeak = 0;
     bool shieldBroken = false;
     Board after;
 };
+
+/** 5 個格子（座標 xs, ys）是不是指定形狀：1 十字、2 T 形、3 L 形（可旋轉） */
+static bool isShape(const int* xs, const int* ys, int type) {
+    auto has = [&](int x, int y) { for (int k = 0; k < 5; k++) if (xs[k] == x && ys[k] == y) return true; return false; };
+    const int dx[4] = {1, 0, -1, 0}, dy[4] = {0, 1, 0, -1};
+    for (int k = 0; k < 5; k++) {
+        const int x = xs[k], y = ys[k];
+        if (type == 1) {  // 十字：中心上下左右都在
+            if (has(x + 1, y) && has(x - 1, y) && has(x, y + 1) && has(x, y - 1)) return true;
+        } else if (type == 2) {  // T：中心兩側（一條線的兩端），再往另一方向延伸 2 格
+            for (int d = 0; d < 4; d++) {
+                const int px = dx[d], py = dy[d];          // 垂直延伸方向
+                const int ax = py, ay = px;                 // 橫槓方向
+                if (has(x + ax, y + ay) && has(x - ax, y - ay) && has(x + px, y + py) && has(x + 2 * px, y + 2 * py)) return true;
+            }
+        } else if (type == 3) {  // L：轉角往兩個垂直方向各延伸 2 格
+            for (int d = 0; d < 4; d++) {
+                const int ex = dx[d], ey = dy[d], fx = dx[(d + 1) % 4], fy = dy[(d + 1) % 4];
+                if (has(x + ex, y + ey) && has(x + 2 * ex, y + 2 * ey) && has(x + fx, y + fy) && has(x + 2 * fx, y + 2 * fy)) return true;
+            }
+        }
+    }
+    return false;
+}
 
 Info resolve(Board b) {
     const int N = X.N;
@@ -122,6 +147,27 @@ Info resolve(Board b) {
         if (round == 0) {
             in.first = c;
             in.firstOrbs = orbs;
+            // 形狀盾：首批每一組相連的同色珠，剛好 5 粒並排成指定形狀才算一組
+            if (RU.shapeType && RU.shapeMin) {
+                bool seen[MAXN] = {};
+                int stk[MAXN];
+                for (int i = 0; i < N; i++) {
+                    if (!mark[i] || seen[i]) continue;
+                    int xs[MAXN], ys[MAXN], n = 0, sp = 0;
+                    stk[sp++] = i; seen[i] = true;
+                    while (sp) {
+                        const int p = stk[--sp];
+                        xs[n] = p % C; ys[n] = p / C; n++;
+                        for (int d = 0; d < 4; d++) {
+                            const int nx = p % C + DX[d], ny = p / C + DY[d];
+                            if (nx < 0 || nx >= C || ny < 0 || ny >= X.R) continue;
+                            const int q = ny * C + nx;
+                            if (mark[q] && !seen[q] && col(b.c[q]) == col(b.c[p])) { seen[q] = true; stk[sp++] = q; }
+                        }
+                    }
+                    if (n == 5 && isShape(xs, ys, RU.shapeType)) in.shapes++;
+                }
+            }
             // 首消必消（全部消光）：這些顏色的珠要在第一批就全部消掉，沒被消的都算剩下（疊珠不算）
             if (RU.allMask) {
                 in.allLeft = 0;
@@ -213,6 +259,7 @@ int goalsCount(const Info& in, int pos) {
     g += !(in.firstMask & RU.antiMask);
     g += (in.mask & RU.elemMask) == RU.elemMask;
     g += in.allLeft == 0;
+    g += !RU.shapeMin || in.shapes >= RU.shapeMin;
     g += !RU.shieldN || in.shieldBroken;
     return g;
 }
@@ -229,6 +276,7 @@ bool goalsOk(const Info& in, int pos) {
     if (in.firstMask & RU.antiMask) return false;
     if ((in.mask & RU.elemMask) != RU.elemMask) return false;
     if (in.allLeft) return false;
+    if (RU.shapeType && in.shapes < RU.shapeMin) return false;
     if (RU.shieldN && !in.shieldBroken) return false;
     return true;
 }
@@ -280,7 +328,27 @@ void score(State& s) {
     if (RU.first3Only) w -= (in.firstOrbs - 3 * in.first) * 600;
     w -= __builtin_popcount(in.firstMask & RU.antiMask) * 3000;
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
-    w -= in.allLeft * 400.0f * cfg.allBoost;   // 必消（全部）：每剩一顆扣分，引導把那個顏色全部消光
+    w -= in.allLeft * 400.0f * cfg.allBoost;
+    if (RU.shapeType) {
+        w += std::min(in.shapes, RU.shapeMin) * 1500.0f;   // 形狀盾：每多一組指定形狀加分
+        // 還沒湊齊：找盤面上最接近十字的位置（中心與上下左右同色的格數），取最好的幾個不重疊中心加分
+        if (RU.shapeType == 1 && in.shapes < RU.shapeMin) {
+            const int N = X.N, R = X.R;
+            int best[4] = {0, 0, 0, 0};
+            for (int i = 0; i < N; i++) {
+                const int x = i % C, y = i / C;
+                if (x == 0 || x == C - 1 || y == 0 || y == R - 1 || s.b.c[i] == EMPTY) continue;
+                const int c0 = col(s.b.c[i]);
+                int m = 1;
+                for (int d = 0; d < 4; d++) {
+                    const int q = (y + DY[d]) * C + x + DX[d];
+                    if (s.b.c[q] != EMPTY && col(s.b.c[q]) == c0) m++;
+                }
+                for (int k = 0; k < 4; k++) if (m > best[k]) { for (int j = 3; j > k; j--) best[j] = best[j - 1]; best[k] = m; break; }
+            }
+            for (int k = 0; k < std::min(RU.shapeMin, 4); k++) w += best[k] * best[k] * 120.0f;
+        }
+    }   // 必消（全部）：每剩一顆扣分，引導把那個顏色全部消光
     if (RU.shieldN)
         w += (in.shieldCover == RU.shieldN ? 2800 + RU.shieldN * 300
                                            : in.shieldCover * in.shieldCover * cfg.shieldGuide)
@@ -451,10 +519,11 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
         int m = v[12 + MAX_CELLS + i];
         out.meta[i] = (m >= 0 && m < 6) ? m : -1;
     }
-    if (n >= RULES_INTS) out.firstAttrMin = std::max(0, v[RULES_INTS_V1]);
-    if (n >= RULES_INTS) out.firstOrbsExact = std::max(0, v[RULES_INTS_V1 + 1]);
-    if (n >= RULES_INTS) out.first3Only = v[RULES_INTS_V1 + 2] != 0;
-    if (n >= RULES_INTS) out.allMask = v[RULES_INTS_V1 + 3] & 0x3F;
+    if (n >= RULES_INTS_V1 + 4) out.firstAttrMin = std::max(0, v[RULES_INTS_V1]);
+    if (n >= RULES_INTS_V1 + 4) out.firstOrbsExact = std::max(0, v[RULES_INTS_V1 + 1]);
+    if (n >= RULES_INTS_V1 + 4) out.first3Only = v[RULES_INTS_V1 + 2] != 0;
+    if (n >= RULES_INTS_V1 + 4) out.allMask = v[RULES_INTS_V1 + 3] & 0x3F;
+    if (n >= RULES_INTS) { out.shapeType = std::clamp(v[RULES_INTS_V1 + 4], 0, 3); out.shapeMin = std::max(0, v[RULES_INTS_V1 + 5]); }
     return true;
 }
 

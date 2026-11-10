@@ -319,6 +319,29 @@ int main() {
         CHECK(both >= n * 0.9, "拼圖盾＋首消剛好 6 combo 兩個都做到");
     }
 
+    {
+        // 形狀盾：十字 / T 形 / L 形（首批 5 粒同色剛好排成該形狀）
+        int v[RULES_INTS] = {0}; v[0] = 1; v[3] = -1; v[8] = 6; v[10] = -1; v[11] = -1;
+        for (int i = 0; i < MAX_CELLS; i++) v[12 + MAX_CELLS + i] = -1;
+        v[RULES_INTS_V1 + 4] = 1; v[RULES_INTS_V1 + 5] = 1;
+        Rules rx; rulesFromInts(v, RULES_INTS, rx);
+        CHECK(rx.shapeType == 1 && rx.shapeMin == 1, "形狀盾可解碼");
+        // 十字已經排好（中心在第 3 列第 3 格），隨便移最角落一步
+        uint8_t cx[MAX_CELLS]; parse("123451" "520345" "300034" "450123" "512345", cx, 30);
+        Config c0;
+        CHECK(replay(cx, 29, {2}, c0, rx).goalsMet, "十字形 5 粒 → 破盾");
+        v[RULES_INTS_V1 + 4] = 3; Rules rl; rulesFromInts(v, RULES_INTS, rl);
+        CHECK(!replay(cx, 29, {2}, c0, rl).goalsMet, "十字不算 L 形");
+        v[RULES_INTS_V1 + 4] = 1; v[RULES_INTS_V1 + 5] = 2; Rules r2; rulesFromInts(v, RULES_INTS, r2);
+        std::mt19937 rq(21); int ok = 0, n = 15;
+        for (int k = 0; k < n; k++) {
+            uint8_t bb[MAX_CELLS]; for (int i = 0; i < 30; i++) bb[i] = rq() % 6;
+            Config cc; cc.maxPath = 73; cc.timeBudgetMs = 1500; if (solve(bb, cc, r2).goalsMet) ok++;
+        }
+        std::printf("十字限盾 ≥2 組：%d / %d\n", ok, n);
+        CHECK(ok >= n * 0.6, "十字限盾 ≥2 組大多做得到");
+    }
+
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);
     return failures ? 1 : 0;
 }

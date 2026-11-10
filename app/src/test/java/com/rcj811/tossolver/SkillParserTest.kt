@@ -49,6 +49,19 @@ class SkillParserTest {
     }
 
     @Test
+    fun crossShapeShield() {
+        val r = SkillParser.parse("【首攻 CD1】【淨世】【十字限盾 (≥2 組)】 以【十】形首批消除 ≥2 組 5 粒符石")
+        assertEquals(1, r.rules.shapeType)
+        assertEquals(2, r.rules.shapeMin)
+        assertEquals(1, SkillGuide.explain(r.skills).count { it.second.meaning.contains("十") })
+        val t = SkillParser.parse("【T形限盾 (≥1 組)】").rules
+        assertEquals(2, t.shapeType); assertEquals(1, t.shapeMin)
+        assertEquals(116, StageRules().apply { shapeType = 1; shapeMin = 2 }.toInts().size)
+        assertEquals(1, StageRules().apply { shapeType = 1; shapeMin = 2 }.toInts()[112])
+        assertEquals(2, StageRules().apply { shapeType = 1; shapeMin = 2 }.toInts()[113])
+    }
+
+    @Test
     fun readsNumShieldNumber() {
         assertEquals(15, SkillParser.parseNum("CD 1\nNUM 15"))
         assertEquals(12, SkillParser.parseNum("CD1\nNum12"))

@@ -1037,6 +1037,15 @@ class AutoTurnService : AccessibilityService() {
         val attrBtn = btn(attrLabel()) { b -> edit.firstAttrMin = cycle(attrChoices, edit.firstAttrMin); b.text = attrLabel(); refresh() }
         val orbsChoices = intArrayOf(0) + (10..24).toList().toIntArray()
         fun orbsLabel() = if (edit.firstOrbsExact == 0) "NUM盾：無" else "NUM盾：剛好 ${edit.firstOrbsExact} 粒"
+        // 形狀盾：無 → 十字≥1、≥2、≥3 → T 形≥1… → L 形≥1…
+        val shapeChoices = listOf(0 to 0) + (1..3).flatMap { t -> (1..3).map { t to it } }
+        fun shapeLabel() = if (edit.shapeMin == 0) "形狀盾：無" else "${StageRules.SHAPE_NAMES[edit.shapeType]}限盾 ≥${edit.shapeMin} 組"
+        val shapeBtn = btn(shapeLabel()) { b ->
+            val i = shapeChoices.indexOf(edit.shapeType to edit.shapeMin)
+            val (t, m) = shapeChoices[(i + 1) % shapeChoices.size]
+            edit.shapeType = t; edit.shapeMin = m
+            b.text = shapeLabel(); refresh()
+        }
         val orbsBtn = btn(orbsLabel()) { b -> edit.firstOrbsExact = cycle(orbsChoices, edit.firstOrbsExact); b.text = orbsLabel(); refresh() }
         fun stickyLabel() = "黏手路徑：" + if (edit.sticky) "開" else "關"
         fun fireLabel() = "火焰路徑：" + if (edit.firePath) "開" else "關"
@@ -1074,7 +1083,7 @@ class AutoTurnService : AccessibilityService() {
         panel.addView(rowOf(brushButtons[4], brushButtons[5], brushButtons[6]))
         panel.addView(rowOf(brushButtons[7], brushButtons[8], brushButtons[9]))
         panel.addView(rowOf(comboBtn, firstBtn, threeBtn))
-        panel.addView(rowOf(attrBtn, orbsBtn))
+        panel.addView(rowOf(attrBtn, orbsBtn, shapeBtn))
         panel.addView(rowOf(stickyBtn, fireBtn))
         panel.addView(maskRow("首消必消(全部消光)", { edit.allMask }, { edit.allMask = it }))
         panel.addView(maskRow("首消不能消(第一批)", { edit.antiMask }, { edit.antiMask = it }))

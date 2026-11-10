@@ -10,7 +10,8 @@ class StageRules {
     companion object {
         const val MAX_CELLS = 48
         const val INTS_V1 = 12 + MAX_CELLS * 2
-        const val INTS = INTS_V1 + 4          // [108] firstAttrMin
+        const val INTS = INTS_V1 + 8
+        val SHAPE_NAMES = arrayOf("", "十字", "T 形", "L 形")          // [108] firstAttrMin
 
         const val SHIELD = 1        // 拼圖盾格
         const val CRACK = 2         // 裂痕（不能消除）
@@ -34,6 +35,8 @@ class StageRules {
     var firstOrbsExact = 0   // 首消符石數量盾（NUM X）：首批消除「剛好」X 粒（疊珠不算）
     var antiMask = 0       // 首消不能消的珠種（bit = 珠種）
     var elemMask = 0       // 多屬性盾：本回合這些珠種每種至少消一組（讀技能卡設定）
+    var shapeType = 0      // 形狀盾：0 無、1 十字、2 T 形、3 L 形（首批以這個形狀消除 5 粒同色）
+    var shapeMin = 0       // 形狀盾：至少幾組
     var allMask = 0        // 首消必消（全部消光，第一批就要消掉）：這些珠種盤面上的珠全部要消掉（3 的倍數每組 3 顆，不是就用 4、5 顆一組）
     var sticky = false     // 黏手路徑：碰過的格不能再碰
     var firePath = false   // 火焰路徑：不要重踩剛走過的格
@@ -41,11 +44,11 @@ class StageRules {
     var red = -1           // 紅漩渦：終點
     val cellFlags = IntArray(MAX_CELLS)
 
-    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && firstOrbsExact == 0 && !first3Only && !unsureElec && antiMask == 0 && elemMask == 0 && allMask == 0 &&
+    fun isEmpty(): Boolean = comboMin == 0 && firstMin == 0 && firstExact < 0 && firstAttrMin == 0 && firstOrbsExact == 0 && !first3Only && !unsureElec && antiMask == 0 && elemMask == 0 && allMask == 0 && shapeMin == 0 &&
         !sticky && !firePath && green < 0 && red < 0 && cellFlags.all { it == 0 }
 
     fun clear() {
-        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; firstOrbsExact = 0; first3Only = false; unsureElec = false; antiMask = 0; elemMask = 0; allMask = 0
+        comboMin = 0; firstMin = 0; firstExact = -1; firstAttrMin = 0; firstOrbsExact = 0; first3Only = false; unsureElec = false; antiMask = 0; elemMask = 0; allMask = 0; shapeType = 0; shapeMin = 0
         sticky = false; firePath = false; green = -1; red = -1
         cellFlags.fill(0)
     }
@@ -93,6 +96,8 @@ class StageRules {
         v[INTS_V1 + 1] = firstOrbsExact
         v[INTS_V1 + 2] = if (first3Only) 1 else 0
         v[INTS_V1 + 3] = allMask
+        v[INTS_V1 + 4] = if (shapeMin > 0) shapeType else 0
+        v[INTS_V1 + 5] = shapeMin
         return v
     }
 
@@ -113,6 +118,7 @@ class StageRules {
         if (firstAttrMin > 0) parts.add("首消屬性≥$firstAttrMin")
         if (firstOrbsExact > 0) parts.add("NUM盾 首消剛好${firstOrbsExact}粒")
         if (elemMask != 0) parts.add("多屬性盾 ${maskText(elemMask)}")
+        if (shapeMin > 0) parts.add("${SHAPE_NAMES[shapeType]}限盾 ≥$shapeMin 組")
         if (allMask != 0) parts.add("首消必消 ${maskText(allMask)}（第一批全部消光）")
         if (antiMask != 0) parts.add("首消禁 ${maskText(antiMask)}")
         if (count(NO_TOUCH) > 0) parts.add("燃燒 ${count(NO_TOUCH)}")
@@ -130,7 +136,7 @@ class StageRules {
 
     fun copyFrom(o: StageRules) {
         comboMin = o.comboMin; firstMin = o.firstMin; firstExact = o.firstExact; firstAttrMin = o.firstAttrMin; firstOrbsExact = o.firstOrbsExact; first3Only = o.first3Only; unsureElec = o.unsureElec
-        antiMask = o.antiMask; elemMask = o.elemMask; allMask = o.allMask; sticky = o.sticky; firePath = o.firePath
+        antiMask = o.antiMask; elemMask = o.elemMask; allMask = o.allMask; shapeType = o.shapeType; shapeMin = o.shapeMin; sticky = o.sticky; firePath = o.firePath
         green = o.green; red = o.red
         o.cellFlags.copyInto(cellFlags)
     }
@@ -147,6 +153,7 @@ class StageRules {
         antiMask = antiMask or o.antiMask
         elemMask = elemMask or o.elemMask
         allMask = allMask or o.allMask
+        if (o.shapeMin > 0) { shapeType = o.shapeType; shapeMin = o.shapeMin }
         sticky = sticky || o.sticky
         firePath = firePath || o.firePath
         if (o.green >= 0) green = o.green
@@ -231,6 +238,13 @@ class StageRules {
                 if (avail[c] < 3) return "第 $r 列第 $col 格的${ORB_SHORT[c]}珠標了必消，但能消的${ORB_SHORT[c]}只有 ${avail[c]} 顆"
             }
         }
+        // 形狀盾：每組要 5 粒同色，盤面上同色 5 粒以上才湊得出
+        if (shapeMin > 0) {
+            val cnt = IntArray(6)
+            for (c in colors) if (c in 0..5) cnt[c]++
+            val most = cnt.sumOf { it / 5 }
+            if (most < shapeMin) return "${SHAPE_NAMES[shapeType]}限盾要 $shapeMin 組（每組 5 粒同色），這盤最多只能湊 $most 組"
+        }
         // 必消（全部消光）：那個顏色盤面上能消的珠要 ≥3 顆（3、4、5 顆一組可以湊出任何 ≥3 的數量）
         if (allMask != 0) {
             val all = IntArray(6)
@@ -270,7 +284,7 @@ class StageRules {
 
     /** 簡單文字格式（存檔用）：key=value;... */
     fun serialize(): String = listOf(
-        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "fo=$firstOrbsExact", "f3=${if (first3Only) 1 else 0}", "ue=${if (unsureElec) 1 else 0}", "a=$antiMask", "e=$elemMask", "am=$allMask",
+        "c=$comboMin", "f=$firstMin", "x=$firstExact", "fa=$firstAttrMin", "fo=$firstOrbsExact", "f3=${if (first3Only) 1 else 0}", "ue=${if (unsureElec) 1 else 0}", "a=$antiMask", "e=$elemMask", "am=$allMask", "sh=$shapeType", "sm=$shapeMin",
         "s=${if (sticky) 1 else 0}", "p=${if (firePath) 1 else 0}", "g=$green", "r=$red",
         "cells=" + cellFlags.joinToString(","),
     ).joinToString(";")
@@ -293,6 +307,8 @@ class StageRules {
                 "a" -> antiMask = v.toIntOrNull() ?: 0
                 "e" -> elemMask = v.toIntOrNull() ?: 0
                 "am" -> allMask = v.toIntOrNull() ?: 0
+                "sh" -> shapeType = (v.toIntOrNull() ?: 0).coerceIn(0, 3)
+                "sm" -> shapeMin = v.toIntOrNull() ?: 0
                 "s" -> sticky = v == "1"
                 "p" -> firePath = v == "1"
                 "g" -> green = v.toIntOrNull() ?: -1
