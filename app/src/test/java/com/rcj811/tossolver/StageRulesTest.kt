@@ -172,6 +172,20 @@ class StageRulesTest {
     }
 
     @Test
+    fun preciseConditionsUseFourDirections() {
+        // 形狀、NUM、首消剛好、每組3顆、同色組數、全部消光、拼圖盾 → 只走上下左右
+        assertTrue(StageRules().apply { shapeType = 2; shapeMin = 2 }.precise())
+        assertTrue(StageRules().apply { firstOrbsExact = 12 }.precise())
+        assertTrue(StageRules().apply { firstExact = 4 }.precise())
+        assertTrue(StageRules().apply { groupMask = 0b11000 }.precise())
+        assertTrue(StageRules().apply { allMask = 1 }.precise())
+        assertTrue(StageRules().apply { toggle(3, SHIELD) }.precise())
+        // Combo 盾、起終點、一般盤 → 照設定（可以斜走）
+        assertFalse(StageRules().apply { comboMin = 7; green = 0; red = 29 }.precise())
+        assertFalse(StageRules().precise())
+    }
+
+    @Test
     fun userStartBeatsDetectedGo() {
         // 「關」設的起點優先於盤面偵測到的 GO；沒設才用 GO
         val r = StageRules().apply { green = 3; red = 29; shapeType = 2; shapeMin = 2 }

@@ -64,6 +64,11 @@ abstract class Cond(val name: String) {
     open fun impossible(r: StageRules, b: BoardCount): String? = null
     /** 「關」面板上的控制項 */
     open val controls: List<Ctl> = emptyList()
+    /**
+     * 需要精準控制第一批（形狀、剛好幾粒／幾組…）：只走上下左右。
+     * 斜走要剛好穿過格子的角，手指偏一點遊戲就先經過旁邊那格、多換一次珠，形狀或數量就跑掉。
+     */
+    open fun precise(r: StageRules) = false
 }
 
 object StageConds {
@@ -142,6 +147,7 @@ object StageConds {
     )
 
     private object Cells : Cond("盤面格子") {
+        override fun precise(r: StageRules) = r.count(StageRules.SHIELD) > 0
         override fun isSet(r: StageRules) = r.cellFlags.any { it != 0 }
         override fun clear(r: StageRules) = r.cellFlags.fill(0)
         override fun copy(dst: StageRules, src: StageRules) { src.cellFlags.copyInto(dst.cellFlags) }
@@ -293,6 +299,7 @@ object StageConds {
     private fun ban(r: StageRules) = if (r.antiMask != 0) "（首消不能消 ${maskText(r.antiMask)}）" else ""
 
     private object FirstExact : IntCond("首消剛好 Combo", "x", -1, { it.firstExact }, { r, v -> r.firstExact = v }) {
+        override fun precise(r: StageRules) = isSet(r)
         val values = intArrayOf(-1) + (1..10).toList()
         override fun summary(r: StageRules) = if (isSet(r)) listOf("首消剛好 ${r.firstExact} Combo") else emptyList()
         override fun impossible(r: StageRules, b: BoardCount) =
@@ -315,6 +322,7 @@ object StageConds {
     }
 
     private object First3 : BoolCond("首消每組 3 顆", "f3", { it.first3Only }, { r, v -> r.first3Only = v }) {
+        override fun precise(r: StageRules) = isSet(r)
         override fun summary(r: StageRules) = if (isSet(r)) listOf("首消每組 3 顆") else emptyList()
         fun mismatch(r: StageRules) =
             if (r.first3Only && r.firstExact > 0 && r.firstOrbsExact > 0 && r.firstOrbsExact != r.firstExact * 3)
@@ -342,6 +350,7 @@ object StageConds {
     }
 
     private object Num : IntCond("NUM 盾", "fo", 0, { it.firstOrbsExact }, { r, v -> r.firstOrbsExact = v }) {
+        override fun precise(r: StageRules) = isSet(r)
         val values = intArrayOf(0) + (10..24).toList()
         override fun summary(r: StageRules) = if (isSet(r)) listOf("NUM盾 首消剛好${r.firstOrbsExact}粒") else emptyList()
         override fun impossible(r: StageRules, b: BoardCount): String? {
@@ -373,6 +382,7 @@ object StageConds {
     }
 
     private object Shape : Cond("形狀盾") {
+        override fun precise(r: StageRules) = isSet(r)
         // 無 → 十字≥1、≥2、≥3 → T 形≥1… → L 形≥1…
         val choices = listOf(0 to 0) + (1..3).flatMap { t -> (1..3).map { t to it } }
         override fun isSet(r: StageRules) = r.shapeMin > 0
@@ -399,6 +409,7 @@ object StageConds {
 
     /** 同色組數盾：選 2～4 色，第一批每色各剛好 K 組、每組剛好 3 顆 */
     private object Group : Cond("同色組數盾") {
+        override fun precise(r: StageRules) = r.groupActive()
         override fun isSet(r: StageRules) = r.groupMask != 0
         override fun clear(r: StageRules) { r.groupMask = 0; r.groupK = 1 }
         override fun copy(dst: StageRules, src: StageRules) { dst.groupMask = src.groupMask; dst.groupK = src.groupK }
@@ -441,6 +452,7 @@ object StageConds {
 
     /** 首消必消（全部消光） */
     private object AllClear : MaskCond("首消必消（全部消光）", "am", { it.allMask }, { r, v -> r.allMask = v }) {
+        override fun precise(r: StageRules) = isSet(r)
         override fun summary(r: StageRules) = if (isSet(r)) listOf("首消必消 ${maskText(r.allMask)}（第一批全部消光）") else emptyList()
         override fun conflicts(r: StageRules): List<String> =
             if (r.allMask and r.antiMask != 0) listOf("首消必消 ${maskText(r.allMask and r.antiMask)}，但首消禁同一色，兩個條件矛盾") else emptyList()

@@ -117,6 +117,9 @@ class StageRules {
     fun mergeFrom(o: StageRules) = StageConds.ALL.forEach { it.merge(this, o) }
 
     /** 條件之間互相矛盾（不看盤面；「關」面板上即時顯示） */
+    /** 有需要精準控制第一批的條件：轉珠只走上下左右（不斜走） */
+    fun precise(): Boolean = StageConds.ALL.any { it.precise(this) }
+
     fun ruleConflicts(): List<String> = StageConds.ALL.flatMap { it.conflicts(this) }.distinct()
 
     /**

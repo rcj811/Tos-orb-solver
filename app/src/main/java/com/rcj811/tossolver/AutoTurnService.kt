@@ -758,7 +758,8 @@ class AutoTurnService : AccessibilityService() {
         // 難關不再固定用大範圍（太慢）：從標準範圍開始，時間內自動加寬
         val beam = settings.beam
         val maxPath = settings.maxPathFor(geo.rows)
-        val dirs = settings.dirs
+        // 形狀盾、NUM、首消剛好…要精準：只走上下左右。斜走手指偏一點就多換一顆珠，轉好的形狀放手時被破壞
+        val dirs = if (stage.precise()) 4 else settings.dirs
         val budget = settings.solveBudgetMs
         // 起點：「關」設定的起點優先，沒有設定才用盤面上偵測到的「GO」
         val goCell = if (stage.green >= 0) stage.green else rec.startCell()
