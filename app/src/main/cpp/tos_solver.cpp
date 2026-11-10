@@ -290,6 +290,7 @@ struct State {
     int cleared;
     int first;
     int goals;     // 做到的條件數
+    int shapes;    // 形狀盾：首批做到的形狀組數
     bool ok;
     uint64_t visited;
     uint8_t used[MAXN];
@@ -305,6 +306,7 @@ void score(State& s) {
     s.cleared = in.cleared;
     s.first = in.first;
     s.goals = goalsCount(in, s.pos);
+    s.shapes = in.shapes;
     float f[NUM_FEATURES];
     features(in, s.len, f);
     float w = in.combos * 1000.0f;
@@ -330,7 +332,7 @@ void score(State& s) {
     w += __builtin_popcount(in.mask & RU.elemMask) * cfg.elemGuide;
     w -= in.allLeft * 400.0f * cfg.allBoost;
     if (RU.shapeType) {
-        w += std::min(in.shapes, RU.shapeMin) * 1500.0f;   // 形狀盾：每多一組指定形狀加分
+        w += std::min(in.shapes, RU.shapeMin) * 1500.0f * cfg.shapeBoost;   // 形狀盾：每多一組指定形狀加分
         // 還沒湊齊：找盤面上最接近十字的位置（中心與上下左右同色的格數），取最好的幾個不重疊中心加分
         if (RU.shapeType == 1 && in.shapes < RU.shapeMin) {
             const int N = X.N, R = X.R;
@@ -346,7 +348,7 @@ void score(State& s) {
                 }
                 for (int k = 0; k < 4; k++) if (m > best[k]) { for (int j = 3; j > k; j--) best[j] = best[j - 1]; best[k] = m; break; }
             }
-            for (int k = 0; k < std::min(RU.shapeMin, 4); k++) w += best[k] * best[k] * 120.0f;
+            for (int k = 0; k < std::min(RU.shapeMin, 4); k++) w += best[k] * best[k] * 120.0f * cfg.shapeBoost;
         }
     }   // 必消（全部）：每剩一顆扣分，引導把那個顏色全部消光
     if (RU.shieldN)
@@ -363,6 +365,8 @@ bool better(const State& a, const State& b) {
     if (a.ok != b.ok) return a.ok;
     // 兩個都沒完全符合：先比做到幾項條件（例如拼圖盾＋首消 8 combo，不能為了 combo 放棄拼圖盾）
     if (!a.ok && a.goals != b.goals) return a.goals > b.goals;
+    // 形狀盾沒湊滿：多一組算一組（例如要 2 組十字，做不到時至少做 1 組，不能為了 combo 變成 0 組）
+    if (!a.ok && X.ru.shapeMin && a.shapes != b.shapes) return a.shapes > b.shapes;
     if (a.combos != b.combos) return a.combos > b.combos;
     if (X.cfg.prefer3) {
         // 同 combo：每組剛好 3 顆最好（多出來的珠越少越好），其次首消 combo 越多
@@ -574,6 +578,23 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
             if (beamSearch(b, cand) && better(cand, best)) best = cand;
         }
         X.cfg.allBoost = cfg.allBoost;
+        X.cfg.beam = cfg.beam;
+    }
+    // 形狀盾沒湊滿：加重引導再找（最多用到 timeBudget 的 1.5 倍，不讓思考太久）
+    if (rules.shapeMin && !best.ok) {
+        const double cap = cfg.timeBudgetMs > 0 ? cfg.timeBudgetMs * 1.5 : 0;
+        auto fitsS = [&](int beam) { return cap <= 0 || elapsed() + perBeam * beam * 1.15 <= cap; };
+        const float boosts[] = {3.0f, 6.0f};
+        const int beams[] = {900, 1500};
+        for (int k = 0; k < 2 && !best.ok; k++) {
+            const int bm = std::max(cfg.beam, beams[k]);
+            if (!fitsS(bm)) break;
+            X.cfg.shapeBoost = boosts[k];
+            X.cfg.beam = bm;
+            State cand;
+            if (beamSearch(b, cand) && better(cand, best)) best = cand;
+        }
+        X.cfg.shapeBoost = cfg.shapeBoost;
         X.cfg.beam = cfg.beam;
     }
     // 2) 時間還夠：beam ×3 重算（更多 combo／更接近條件）

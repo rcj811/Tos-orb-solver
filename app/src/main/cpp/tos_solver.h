@@ -86,7 +86,8 @@ struct Config {
     bool prefer3 = true;     // combo 相同時，選每組剛好 3 顆的消法（多出來的珠越少越好，combo 才會最多）
     int timeBudgetMs = 0;    // >0：所有加強搜尋（拼圖盾換色、加寬 beam）都在這個時間內完成；0 = 不限時間
     int shieldColor = -1;
-    float allBoost = 1.0f;   // 必消（全部消光）引導強度倍數（沒湊到時加重再找）    // 拼圖盾：指定用哪一種顏色鋪盾（-1 = 自動，取盾格上最多的顏色）
+    float allBoost = 1.0f;
+    float shapeBoost = 1.0f; // 形狀盾引導強度倍數（沒湊滿時加重再找）   // 必消（全部消光）引導強度倍數（沒湊到時加重再找）    // 拼圖盾：指定用哪一種顏色鋪盾（-1 = 自動，取盾格上最多的顏色）
 };
 
 inline int defaultMaxPath(int rows) { return 25 + rows * 2; }
