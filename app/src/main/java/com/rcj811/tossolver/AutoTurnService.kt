@@ -268,11 +268,24 @@ class AutoTurnService : AccessibilityService() {
         playBtn = play
         onceBtn = once
         stageBtn = stg
+        calBtn = cal
         updateBar()
     }
 
     private fun setColor(v: TextView?, color: String) {
         (v?.background as? GradientDrawable)?.setColor(Color.parseColor(color))
+    }
+
+    /** 最近一次看到的盤面有幾格認不出來（問號）；> 0 時「校」按鈕變成橘色「校?」提醒去校正 */
+    private var boardUnknown = 0
+    private var calBtn: TextView? = null
+
+    /** 看到一張完整盤面後記下問號數（換關動畫等看不到盤面的畫面不算） */
+    private fun noteUnknown(n: Int) {
+        if (n == boardUnknown) return
+        if (n > 0 && boardUnknown == 0) toast("盤面有 $n 格認不出來（問號），「校」按鈕變成橘色「校?」：按它把問號點掉或改成正確的珠")
+        boardUnknown = n
+        updateBar()
     }
 
     private fun updateBar(onceLabel: String? = null) {
@@ -282,6 +295,13 @@ class AutoTurnService : AccessibilityService() {
         setColor(onceBtn, if (busy && !running) "#F57C00" else "#C62828")
         setColor(stageBtn, if (activePreset >= 0 && !stage.isEmpty()) "#F9A825" else "#546E7A")
         for (v in foldable) v.visibility = if (collapsed) View.GONE else View.VISIBLE
+        calBtn?.let { c ->
+            c.text = if (boardUnknown > 0) "校?" else "校"
+            c.textSize = if (boardUnknown > 0) 15f else 17f
+            setColor(c, if (boardUnknown > 0) "#FF6F00" else "#6A1B9A")
+            // 工具列收起時，有問號也要露出「校?」
+            if (boardUnknown > 0) c.visibility = View.VISIBLE
+        }
     }
 
     private inner class HandleTouch : View.OnTouchListener {
@@ -525,7 +545,8 @@ class AutoTurnService : AccessibilityService() {
                 finishOnce("看不出盤面（$unknown 格無法辨識）。請在戰鬥中珠子靜止時再按，或按「校」重新校正")
                 return@captureClean
             }
-            if (unknown > 0) toast("$unknown 格無法辨識，路徑會避開它們")
+            noteUnknown(unknown)
+            if (unknown > 0) toast("$unknown 格無法辨識（問號），路徑會避開它們；按橘色「校?」可以修正")
             val go = {
                 val why = if (stage.isEmpty()) null else stage.firstBatchImpossible(feasColors(rec))
                 // 條件在這盤做不到：照樣轉，用最接近條件的轉法（不要停住不動）
@@ -636,7 +657,7 @@ class AutoTurnService : AccessibilityService() {
         // 遊戲的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
         // 改成只看是否靜止；有現成三連時多確認一張截圖，避免抓到消除動畫中間的畫面
         val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells)
-        if (ready) lastBoardAt = now
+        if (ready) { lastBoardAt = now; noteUnknown(unknown) }
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張
         val needStable = if (unknown > 0 && pending > 0) 3 else 2
         val alreadyDone = OrbRecognizer.sameMasked(board, lastActed) && now - lastActedAt < 5000
@@ -871,6 +892,7 @@ class AutoTurnService : AccessibilityService() {
                 val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
                 val board = OrbRecognizer.maskedBoard(rec)
                 val ready = rec.unknownCount() <= OrbRecognizer.maxUnknown(geo.cells)
+                if (ready) noteUnknown(rec.unknownCount())
                 if (ready && last != null && OrbRecognizer.sameMasked(board, last)) onOnceTap(rules)
                 else waitBoardThenTurn(rules, since, if (ready) board else null)
             }
@@ -1340,5 +1362,8 @@ class AutoTurnService : AccessibilityService() {
         calibView = null
         calibInfo = null
         calibFrame = null
+        // 校正過了：先清掉「校?」，下次看到盤面還有問號會再亮起來
+        boardUnknown = 0
+        updateBar()
     }
 }
