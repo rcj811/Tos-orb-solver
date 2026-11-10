@@ -1275,7 +1275,7 @@ class AutoTurnService : AccessibilityService() {
         val n = v.geo.cells
         val unknown = (0 until n).count { !v.edited[it] && v.conf[it] < OrbRecognizer.UNKNOWN_CONF }
         val fixed = (0 until n).count { v.edited[it] }
-        calibInfo?.text = "把格線對齊盤面（按住不放、震一下後再移動＝拖整個格線；右下圓點＝縮放）。點有「?」的格子＝確認判斷正確（同顏色的問號一起消失）；再點＝改顏色（每種顏色改一顆，同種的會自動跟著更新），長按放開＝切換符石類別（出現標籤後直接點標籤＝換下一個）（強化／風化黏腐／觸電／冰封石化／自訂）；沒有合適的按「＋類別」新增。\n" +
+        calibInfo?.text = "把格線對齊盤面（按住不放、震一下後再移動＝拖整個格線；右下圓點＝縮放）。點有「?」的格子＝確認判斷正確（同顏色的問號一起消失）；再點＝改顏色 火→水→木→光→暗→心→X（不知道是什麼：不能碰、不能移動）（每種顏色改一顆，同種的會自動跟著更新），長按放開＝切換符石類別（出現標籤後直接點標籤＝換下一個）（強化／風化黏腐／觸電／冰封石化／自訂）；沒有合適的按「＋類別」新增。\n" +
             "無法辨識 $unknown 格・已修正 $fixed 格・累計學習 ${colorStore.learnedSamples} 格"
     }
 
@@ -1327,12 +1327,16 @@ class AutoTurnService : AccessibilityService() {
         val labels = ArrayList<Int>()
         val sDescs = ArrayList<FloatArray>()
         val sLabels = ArrayList<Int>()
+        var xMarked = 0
         for (i in 0 until v.geo.cells) {
             val k = v.labels[i]
             val sure = v.edited[i] || v.stateEdited[i] || v.conf[i] >= OrbRecognizer.READY_CONF
             if (!sure) continue
             // 狀態：每個確定的格子都當作樣本（包含普通珠，讓模型分得出「普通」和特殊符石）
-            rec.stateDesc?.let { sDescs.add(it[i]); sLabels.add(v.states[i]) }
+            // 標成 X 的格子：學成「冰封/石化」類（不能碰、不能消），之後長這樣的珠路徑都會繞開
+            val st = if (k == CalibrationView.X_LABEL) OrbState.LOCKED else v.states[i]
+            rec.stateDesc?.let { sDescs.add(it[i]); sLabels.add(st) }
+            if (k == CalibrationView.X_LABEL) { xMarked++; continue }
             // 顏色：只用普通珠學習（強化、風化等外觀不同，不混進顏色中心）
             // 黑白盤面：把確認／修正過的珠存進形狀資料庫，不拿灰色去學顏色
             if (rec.shapes != null) {
@@ -1352,7 +1356,9 @@ class AutoTurnService : AccessibilityService() {
         val sUsed = if (anySpecial) stateModel.learn(sDescs, sLabels) else 0
         if (anySpecial) colorStore.saveStates(stateModel)
         val special = sLabels.count { it != OrbState.NORMAL }
-        toast("已儲存盤面位置，學習了 $used 格顏色" + if (special > 0) "、$special 格特殊符石" else if (sUsed > 0) "、更新符石狀態" else "")
+        toast("已儲存盤面位置，學習了 $used 格顏色" + (if (special > 0) "、$special 格特殊符石" else if (sUsed > 0) "、更新符石狀態" else "") +
+            (if (xMarked > 0) "；$xMarked 格標成 X：之後長這樣的珠不碰、不移動" else "") +
+            (if (xMarked > 0 && rec.stateDesc == null) "（黑白盤面沒辦法學 X）" else ""))
         closeCalibration()
     }
 

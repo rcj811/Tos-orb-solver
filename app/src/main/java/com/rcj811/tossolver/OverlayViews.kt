@@ -56,6 +56,10 @@ class PathOverlayView(context: Context) : View(context) {
 private const val HOLD_MS = 450L
 
 class CalibrationView(context: Context) : View(context) {
+    companion object {
+        /** 「X」：不知道是什麼的珠，當成不能碰、不能移動（存檔時學成冰封/石化類） */
+        const val X_LABEL = 6
+    }
     var geo = BoardGeometry(0f, 0f, 100f, 5)
         set(v) { field = v; invalidate() }
     val labels = IntArray(48) { -1 }
@@ -109,6 +113,16 @@ class CalibrationView(context: Context) : View(context) {
                 canvas.drawCircle(cx, cy, r, ring)
                 text.textSize = s * 0.2f
                 canvas.drawText(BoardView.ORB_NAMES[k], cx, cy + s * 0.07f, text)
+            } else if (k == X_LABEL) {
+                // X：不能碰、不能移動
+                fill.color = Color.parseColor("#212121")
+                canvas.drawCircle(cx, cy, r, fill)
+                ring.color = Color.YELLOW
+                canvas.drawCircle(cx, cy, r, ring)
+                text.textSize = s * 0.24f
+                text.color = Color.parseColor("#FF5252")
+                canvas.drawText("X", cx, cy + s * 0.085f, text)
+                text.color = Color.WHITE
             }
             val st = states[i]
             if (st != OrbState.NORMAL) {   // 狀態標籤（強／風／電／冰）
@@ -199,8 +213,12 @@ class CalibrationView(context: Context) : View(context) {
                                 }
                             }
                         } else {
-                            // 點一下：切換顏色
-                            labels[i] = if (labels[i] !in 0..5) 0 else (labels[i] + 1) % 6
+                            // 點一下：切換顏色 火→水→木→光→暗→心→X（不知道是什麼：不能碰、不能移動）→火
+                            labels[i] = when (labels[i]) {
+                                in 0..4 -> labels[i] + 1
+                                5 -> X_LABEL
+                                else -> 0
+                            }
                             edited[i] = true
                             conf[i] = 1f
                         }
