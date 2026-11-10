@@ -972,6 +972,7 @@ class AutoTurnService : AccessibilityService() {
         // 點擊邏輯都在 StagePanelModel（條件模組產生按鈕），這裡只負責畫
         val model = StagePanelModel(edit)
         val refreshers = ArrayList<() -> Unit>()
+        val buttonRow = HashMap<Ctl, View>()   // 每顆條件按鈕在哪一列（選項列放在那一列正下方）
         val picker = LinearLayout(themed).apply { orientation = LinearLayout.VERTICAL }
         fun btn(label: String, onClick: (Button) -> Unit) = Button(themed).apply {
             text = label
@@ -1023,7 +1024,6 @@ class AutoTurnService : AccessibilityService() {
         val brushButtons = model.brushes.mapIndexed { k, b ->
             btn(model.label(b)) { model.selectBrush(k); refresh() }.also { v -> refreshers.add { v.text = model.label(b) } }
         }
-        val buttonRow = HashMap<Ctl, View>()   // 每顆條件按鈕在哪一列（選項列放在那一列正下方）
         board.onCellTap = { i -> model.tapCell(i); refresh() }
 
         // 數值條件／開關：點一下（數值條件會打開選項列），長按＝回到「無」
