@@ -53,7 +53,9 @@ import kotlin.math.abs
 class AutoTurnService : AccessibilityService() {
 
     companion object {
-        private const val NO_BOARD_PAUSE_MS = 15_000L   // 看不到盤面多久就暫停自動轉珠
+        private const val NO_BOARD_PAUSE_MS = 15_000L   // 看不到盤面、畫面也靜止多久就暫停自動轉珠
+        private const val NO_BOARD_MAX_MS = 60_000L     // 畫面一直在動（過場、會動的選單）也最多等這麼久
+        private const val SCREEN_CHANGE = 0.025f        // 前後兩張截圖平均亮度差超過這個比例＝畫面在變化（過場中）
         @Volatile
         var instance: AutoTurnService? = null
             private set
@@ -651,6 +653,8 @@ class AutoTurnService : AccessibilityService() {
         bossReadTried.clear()
         readSinceTurn = false
         lastBossReadAt = 0L
+        lastScreen = null
+        lastScreenChangeAt = SystemClock.uptimeMillis()
         lastActionAt = SystemClock.uptimeMillis()
         presets = presetStore.load()
         lastBoardAt = SystemClock.uptimeMillis()
@@ -661,6 +665,28 @@ class AutoTurnService : AccessibilityService() {
         val stageText = if (!stage.isEmpty()) "\n照關卡條件轉珠：${stage.summary()}" else ""
         toast("[${appVersion(this)}] 自動執行：開始（每回合轉最高 combo）" + stageText)
         main.post(autoTick)
+    }
+
+    // 過場偵測：整個畫面縮成 24×24 的亮度，比較前後兩張
+    private var lastScreen: FloatArray? = null
+    private var lastScreenChangeAt = 0L
+
+    private fun screenSig(f: Frame): FloatArray {
+        val n = 24
+        val out = FloatArray(n * n)
+        for (gy in 0 until n) for (gx in 0 until n) {
+            val x = ((gx + 0.5f) * f.width / n).toInt().coerceIn(0, f.width - 1)
+            val y = ((gy + 0.5f) * f.height / n).toInt().coerceIn(0, f.height - 1)
+            val c = f.pixels[y * f.width + x]
+            out[gy * n + gx] = (((c shr 16) and 255) * 0.299f + ((c shr 8) and 255) * 0.587f + (c and 255) * 0.114f) / 255f
+        }
+        return out
+    }
+
+    private fun screenDiff(a: FloatArray, b: FloatArray): Float {
+        var d = 0f
+        for (i in a.indices) d += kotlin.math.abs(a[i] - b[i])
+        return d / a.size
     }
 
     private fun stopAuto(msg: String?) {
@@ -774,13 +800,20 @@ class AutoTurnService : AccessibilityService() {
             next(500)
             return
         }
+        // 過場／換場次：畫面還在變化就把暫停秒數從頭算
+        val sig = screenSig(frame)
+        val changing = lastScreen?.let { screenDiff(it, sig) > SCREEN_CHANGE } ?: false
+        lastScreen = sig
+        if (!ready && changing) lastScreenChangeAt = now
         if (!ready) {
             stableCount = 0; lastSeen = null; waitingSince = 0L
-            status("沒看到轉珠盤面（$unknown 格認不出來），等待中…", important = false)
+            status(if (changing) "過場中（畫面在變化），等待下一場的盤面…" else "沒看到轉珠盤面（$unknown 格認不出來），等待中…", important = false)
         }
 
-        // 偵測不到轉珠盤面 15 秒（從上次轉完算起，換關動畫也不會誤判）：自動暫停
-        if (!ready && now - lastBoardAt > NO_BOARD_PAUSE_MS && now - lastActionAt > NO_BOARD_PAUSE_MS) {
+        // 偵測不到轉珠盤面、畫面也靜止 15 秒（過場動畫在動時秒數會重算）；或連續 60 秒都沒有盤面：自動暫停
+        val quietFor = now - maxOf(lastBoardAt, lastActionAt, lastScreenChangeAt)
+        val noBoardFor = now - maxOf(lastBoardAt, lastActionAt)
+        if (!ready && (quietFor > NO_BOARD_PAUSE_MS || noBoardFor > NO_BOARD_MAX_MS)) {
             busy = false
             stopAuto("沒有偵測到轉珠盤面（$unknown 格認不出來），自動轉珠已暫停。\n解決：回到戰鬥畫面後按 ▶；如果盤面明明在，按「校」對齊格線、點問號確認後再按 ▶")
             return
