@@ -132,7 +132,24 @@ class AutoTurnService : AccessibilityService() {
     private var turnsDone = 0
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-    private fun toast(msg: String) = Toast.makeText(this, msg, if (msg.length > 24) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
+    /** 提示訊息：顯示在工具列上方的狀態列（不會幾秒就消失；工具列不在時才用系統小訊息） */
+    private fun toast(msg: String) {
+        val s = statusView
+        if (s == null) { Toast.makeText(this, msg, if (msg.length > 24) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show(); return }
+        status(msg)
+    }
+
+    private var statusView: TextView? = null
+    private var statusAt = 0L
+
+    /** 狀態列：顯示程式現在在做什麼。important=false 的進度訊息不會蓋掉 4 秒內的重要提示 */
+    private fun status(msg: String, important: Boolean = true) {
+        val s = statusView ?: return
+        val now = SystemClock.uptimeMillis()
+        if (!important && now - statusAt < 4000) return
+        if (important) statusAt = now
+        if (s.text.toString() != msg) s.text = msg
+    }
 
     // ---------------- 生命週期 ----------------
 
@@ -175,6 +192,7 @@ class AutoTurnService : AccessibilityService() {
         closeStagePanel()
         for (v in listOf<View?>(bar, pathView)) v?.let { runCatching { wm.removeView(it) } }
         bar = null
+        statusView = null
         pathView = null
         if (instance === this) instance = null
     }
@@ -229,6 +247,27 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun addToolbar() {
+        // 工具列視窗：上面一行狀態列（程式現在在做什麼、提示訊息），下面是按鈕；拖 ⠿ 一起移動
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        val st = TextView(this).apply {
+            text = "待機：按 ▶ 自動轉珠、按「轉」轉一次"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            maxLines = 4
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            maxWidth = dp(340)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(10).toFloat()
+                setColor(Color.argb(215, 0, 0, 0))
+            }
+            // 點狀態列＝清掉訊息
+            setOnClickListener { text = if (running) "自動轉珠中" else "待機"; statusAt = 0L }
+        }
+        root.addView(st, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(3) })
         val b = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -262,8 +301,10 @@ class AutoTurnService : AccessibilityService() {
             x = if (settings.barX >= 0) settings.barX else maxOf(0, (dm.widthPixels - dp(332)) / 2)
             y = if (settings.barY >= 0) settings.barY else (dm.heightPixels * 0.05f).toInt()
         }
-        wm.addView(b, lp)
-        bar = b
+        root.addView(b)
+        wm.addView(root, lp)
+        bar = root
+        statusView = st
         barLp = lp
         playBtn = play
         onceBtn = once
@@ -426,7 +467,7 @@ class AutoTurnService : AccessibilityService() {
     /** 真的過不了：停止並震動提醒使用者手動處理 */
     private fun alertManual(msg: String) {
         stopAuto(null)
-        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        if (statusView != null) status("⚠ " + msg) else Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         runCatching {
             @Suppress("DEPRECATION")
             val v = getSystemService(VIBRATOR_SERVICE) as Vibrator
@@ -491,7 +532,7 @@ class AutoTurnService : AccessibilityService() {
         activePreset = -1
         stage = StageRules()
         updateBar()
-        Toast.makeText(this, "讀到王的技能：${parse.skills.joinToString("、")}\n${parse.summary()}", Toast.LENGTH_LONG).show()
+        toast("讀到王的技能：${parse.skills.joinToString("、")}\n${parse.summary()}")
         if (!auto) return
         lastActionAt = SystemClock.uptimeMillis()
         // 需要補充的機制：提示，但先照已讀到的條件繼續轉，不停住
@@ -628,7 +669,7 @@ class AutoTurnService : AccessibilityService() {
         flushLearning()
         main.removeCallbacks(autoTick)
         updateBar()
-        if (msg != null) toast(msg)
+        if (msg != null) toast(msg) else status("已停止", important = false)
     }
 
     private val autoTick: Runnable = object : Runnable {
@@ -667,7 +708,9 @@ class AutoTurnService : AccessibilityService() {
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張
         val needStable = if (unknown > 0 && pending > 0) 3 else 2
         val alreadyDone = OrbRecognizer.sameMasked(board, lastActed) && now - lastActedAt < 5000
+        if (ready && alreadyDone) status("轉完了，等下一回合的盤面", important = false)
         if (ready && !alreadyDone) {
+            status("看到盤面，等珠子停下來…", important = false)
             if (OrbRecognizer.sameMasked(board, lastSeen)) stableCount++ else { stableCount = 1 }
             lastSeen = board
             if (waitingSince == 0L) waitingSince = now
@@ -731,7 +774,10 @@ class AutoTurnService : AccessibilityService() {
             next(500)
             return
         }
-        if (!ready) { stableCount = 0; lastSeen = null; waitingSince = 0L }
+        if (!ready) {
+            stableCount = 0; lastSeen = null; waitingSince = 0L
+            status("沒看到轉珠盤面（$unknown 格認不出來），等待中…", important = false)
+        }
 
         // 偵測不到轉珠盤面 15 秒（從上次轉完算起，換關動畫也不會誤判）：自動暫停
         if (!ready && now - lastBoardAt > NO_BOARD_PAUSE_MS && now - lastActionAt > NO_BOARD_PAUSE_MS) {
@@ -777,6 +823,7 @@ class AutoTurnService : AccessibilityService() {
         val goCell = if (stage.green >= 0) stage.green else rec.startCell()
         val ruleInts = stage.toInts(goCell)
         val hasStage = !stage.isEmpty()
+        status("計算轉法中…" + if (hasStage) "（${stage.summary()}）" else "", important = false)
         worker.execute { try {
             // 一次計算：拼圖盾換色重找、加寬搜尋、整盤清光都在同一個時間上限內完成（時間到就用目前最好的）
             var res = SolveResult.from(NativeSolver.solve(cells, geo.rows, beam, maxPath, dirs, ruleInts, budget))
@@ -818,6 +865,7 @@ class AutoTurnService : AccessibilityService() {
                 val pts = res.cellsOnPath().map { PointF(geo.centerX(it), geo.centerY(it)) }
                 pathView?.show(pts)
                 updateBar("${res.combos}")
+                status("轉珠中：${res.combos} combo、${res.dirs.size} 步" + if (hasStage) (if (res.goalsMet) "，條件全部做到" else "，條件沒完全做到") else "", important = false)
                 if (settings.autoDrag) {
                     main.postDelayed({
                         drag(pts, settings.stepMs.toLong()) { ok ->
