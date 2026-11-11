@@ -40,6 +40,7 @@ class StageRules {
     var allMask = 0        // 首消必消（全部消光，第一批就要消掉）：這些珠種盤面上的珠全部要消掉（3 的倍數每組 3 顆，不是就用 4、5 顆一組）
     var groupMask = 0      // 同色組數盾：這些珠種（2～4 種）在第一批各消剛好 groupK 組、每組剛好 3 顆；其他珠種不限
     var groupK = 1
+    var revealMove = false // 問號盤：先按住一顆移一格讓顏色出現，再規劃（不送給求解器，App 自己處理）
     var sticky = false     // 黏手路徑：碰過的格不能再碰
     var firePath = false   // 火焰路徑：不要重踩剛走過的格
     var green = -1         // 綠漩渦：起點

@@ -15,7 +15,7 @@ class StagePanelModel(val edit: StageRules) {
         // 面板排列順序（跟之前的版面一樣）；沒列到的新條件自動排在最後
         val BRUSH_ORDER = listOf("cell1", "cell4", "cell8", "cell16", "cell2", "green", "red", "cell32", "cell64", "cell128")
         val BRUSH_ROWS = intArrayOf(4, 3, 3)
-        val BUTTON_ORDER = listOf("combo", "first", "three", "attr", "num", "shape", "sticky", "fire", "groupK")
+        val BUTTON_ORDER = listOf("combo", "first", "three", "attr", "num", "shape", "sticky", "fire", "groupK", "reveal")
         val MASK_ORDER = listOf("allMask", "antiMask", "groupMask")
         private fun <T : Ctl> ordered(all: List<T>, order: List<String>) =
             all.sortedBy { c -> order.indexOf(c.id).let { if (it < 0) Int.MAX_VALUE else it } }

@@ -493,9 +493,15 @@ object StageConds {
         override val controls: List<Ctl> = listOf(Ctl.Toggle("fire", { r -> "火焰路徑：${onOff(r)}" }, { r -> r.firePath = !r.firePath }))
     }
 
+    /** 問號盤：珠子被蓋成問號時，先按住一顆移一格（顏色會出現），不放手、截圖規劃後接著轉完 */
+    private object Reveal : BoolCond("問號盤", "rv", { it.revealMove }, { r, v -> r.revealMove = v }) {
+        override fun summary(r: StageRules) = if (isSet(r)) listOf("問號盤（先移一格看顏色再轉）") else emptyList()
+        override val controls: List<Ctl> = listOf(Ctl.Toggle("reveal", { r -> "問號盤先移一格：${onOff(r)}" }, { r -> r.revealMove = !r.revealMove }))
+    }
+
     /** 全部條件模組（順序＝摘要順序、做不到檢查順序） */
     val ALL: List<Cond> = listOf(
-        Cells, Combo, FirstMin, FirstExact, First3, Elec, Attr, Num, Elem, Shape, Group, AllClear, Anti, Vortex, Sticky, FirePath,
+        Cells, Combo, FirstMin, FirstExact, First3, Elec, Attr, Num, Elem, Shape, Group, AllClear, Anti, Vortex, Sticky, FirePath, Reveal,
     )
 
     /** 面板上全部控制項 */

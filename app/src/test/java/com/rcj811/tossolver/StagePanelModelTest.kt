@@ -36,7 +36,7 @@ class StagePanelModelTest {
         // 版面跟之前一樣：筆刷 4、3、3
         assertEquals(listOf(4, 3, 3), m.brushRows().map { it.size })
         assertEquals(listOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)"), m.brushRows()[0].map { it.name })
-        assertEquals(listOf("combo", "first", "three", "attr", "num", "shape", "sticky", "fire", "groupK"), m.buttons.map { it.id })
+        assertEquals(listOf("combo", "first", "three", "attr", "num", "shape", "sticky", "fire", "groupK", "reveal"), m.buttons.map { it.id })
         assertEquals(listOf("allMask", "antiMask", "groupMask"), m.masks.map { it.id })
     }
 
@@ -222,6 +222,20 @@ class StagePanelModelTest {
         m3.set("shape", "十字≥1"); m3.tapMask(m3.mask("allMask"), WATER); m3.tapMask(m3.mask("allMask"), FIRE)
         assertTrue("十字＋必消水火：${m3.taps} 下", m3.taps <= 4)
         assertEquals("同色組數、首消4C、自動的每組3顆、終點", 4, m1.edit.summary().split("・").size)
+    }
+
+    @Test
+    fun hiddenBoardToggleWithOtherCondition() {
+        // 問號盤＋首消必消光：3 下
+        val m = model()
+        m.tapButton(m.find("reveal"))
+        m.tapMask(m.mask("allMask"), LIGHT)
+        assertTrue(m.edit.revealMove)
+        assertTrue(m.edit.summary().contains("問號盤"))
+        assertTrue(m.edit.summary().contains("首消必消 光"))
+        assertEquals(2, m.taps)
+        assertFalse(m.hasConflicts())
+        assertTrue(StageRules().apply { deserialize(m.edit.serialize()) }.revealMove)
     }
 
     @Test

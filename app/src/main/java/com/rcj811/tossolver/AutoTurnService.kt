@@ -599,8 +599,13 @@ class AutoTurnService : AccessibilityService() {
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
             val unknown = rec.unknownCount()
+            // 問號盤（「關」有開）：先移一格讓顏色出現再規劃
+            if (unknown > OrbRecognizer.maxUnknown(geo.cells) && stage.revealMove) {
+                revealTurn(geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "問號盤這回合沒轉完") }
+                return@captureClean
+            }
             if (unknown > geo.cells / 2) {
-                finishOnce("看不出盤面（$unknown 格無法辨識）。請在戰鬥中珠子靜止時再按，或按「校」重新校正")
+                finishOnce("看不出盤面（$unknown 格無法辨識）。請在戰鬥中珠子靜止時再按，或按「校」重新校正；如果珠子被蓋成問號，到「關」打開「問號盤先移一格」")
                 return@captureClean
             }
             noteUnknown(unknown)
@@ -676,6 +681,40 @@ class AutoTurnService : AccessibilityService() {
         val stageText = if (!stage.isEmpty()) "\n照關卡條件轉珠：${stage.summary()}" else ""
         toast("[${appVersion(this)}] 自動執行：開始（每回合轉最高 combo）" + stageText)
         main.post(autoTick)
+    }
+
+    private var hiddenCount = 0
+
+    /** 盤面每格中間的平均顏色幾乎一樣（整盤被蓋成同一種問號珠），而且不是全黑 */
+    private fun looksHidden(f: Frame, geo: BoardGeometry): Boolean {
+        val n = geo.cells
+        val avg = Array(n) { FloatArray(3) }
+        for (i in 0 until n) {
+            val cx = geo.centerX(i); val cy = geo.centerY(i); val r = geo.cell * 0.2f
+            var k = 0
+            for (dy in -2..2) for (dx in -2..2) {
+                val x = (cx + dx * r / 2).toInt().coerceIn(0, f.width - 1)
+                val y = (cy + dy * r / 2).toInt().coerceIn(0, f.height - 1)
+                val c = f.pixels[y * f.width + x]
+                avg[i][0] += (c shr 16) and 255; avg[i][1] += (c shr 8) and 255; avg[i][2] += c and 255; k++
+            }
+            for (j in 0..2) avg[i][j] /= k
+        }
+        val m = FloatArray(3); for (a in avg) for (j in 0..2) m[j] += a[j] / n
+        if (m.sum() / 3 < 35) return false   // 全黑（過場）
+        var dev = 0f
+        for (a in avg) dev += (kotlin.math.abs(a[0] - m[0]) + kotlin.math.abs(a[1] - m[1]) + kotlin.math.abs(a[2] - m[2])) / 3
+        if (dev / n >= 22f) return false
+        // 要真的是一顆一顆的珠：珠的中間跟格子角落（珠和珠之間的縫）亮度要不一樣（結算畫面整片同色不算）
+        var gap = 0f
+        for (i in 0 until n) {
+            val x = (geo.left + (i % 6) * geo.cell + geo.cell * 0.06f).toInt().coerceIn(0, f.width - 1)
+            val y = (geo.top + (i / 6) * geo.cell + geo.cell * 0.06f).toInt().coerceIn(0, f.height - 1)
+            val c = f.pixels[y * f.width + x]
+            val lum = (((c shr 16) and 255) + ((c shr 8) and 255) + (c and 255)) / 3f
+            gap += kotlin.math.abs(lum - avg[i].sum() / 3)
+        }
+        return gap / n > 20f
     }
 
     // 過場偵測：整個畫面縮成 24×24 的亮度，比較前後兩張
@@ -820,6 +859,30 @@ class AutoTurnService : AccessibilityService() {
             stableCount = 0; lastSeen = null; waitingSince = 0L
             status(if (changing) "過場中（畫面在變化），等待下一場的盤面…" else "沒看到轉珠盤面（$unknown 格認不出來），等待中…", important = false)
         }
+        // 問號盤：畫面靜止、盤面每格長得都一樣（被蓋成問號）連續兩次 → 這關「關」有開「問號盤」就先移一格看顏色
+        hiddenCount = if (!ready && !changing && looksHidden(frame, geo)) hiddenCount + 1 else 0
+        if (hiddenCount >= 2 && now - lastActionAt > 1500) {
+            hiddenCount = 0
+            busy = true
+            captureClean { clean ->
+                if (!running) { busy = false; updateBar(); return@captureClean }
+                applyStageFor(clean ?: frame, geo)
+                if (!stage.revealMove) {
+                    busy = false
+                    status("珠子被蓋成問號：到「關」打開「問號盤先移一格」，就會先移一格看顏色再轉", important = true)
+                    next(1500)
+                    return@captureClean
+                }
+                revealTurn(geo) { ok ->
+                    if (ok) turnsDone++
+                    readSinceTurn = false
+                    lastActionAt = SystemClock.uptimeMillis()
+                    lastBoardAt = lastActionAt
+                    next(if (ok) 2500 else 1000)
+                }
+            }
+            return
+        }
 
         // 偵測不到轉珠盤面、畫面也靜止 15 秒（過場動畫在動時秒數會重算）；或連續 60 秒都沒有盤面：自動暫停
         val quietFor = now - maxOf(lastBoardAt, lastActionAt, lastScreenChangeAt)
@@ -834,7 +897,75 @@ class AutoTurnService : AccessibilityService() {
 
     // ---------------- 求解、拖曳、點擊 ----------------
 
-    private fun solveAndAct(rec: Recognition, geo: BoardGeometry, done: (Boolean) -> Unit) {
+    /** 問號盤：手指還按著的拖曳（已經移了一格），規劃好後從 cell 接著拖 */
+    private class Held(val stroke: GestureDescription.StrokeDescription, val cell: Int, val point: PointF, val movedAt: Long)
+
+    /** 放開還按著的手指（結束這次轉珠） */
+    private fun release(h: Held, done: (Boolean) -> Unit) {
+        val p = Path().apply { moveTo(h.point.x, h.point.y); lineTo(h.point.x, h.point.y + 1f) }
+        dispatch(h.stroke.continueStroke(p, 0, HOLD_END_MS, false), done)
+    }
+
+    /** 從還按著的格子接著拖完 points（points[0] = 手指現在的位置）再放手 */
+    private fun continueDrag(h: Held, points: List<PointF>, stepMs: Long, done: (Boolean) -> Unit) {
+        if (points.size < 2) { release(h, done); return }
+        val move = Path().apply {
+            moveTo(h.point.x, h.point.y)
+            for (k in 1 until points.size) lineTo(points[k].x, points[k].y)
+        }
+        val s2 = h.stroke.continueStroke(move, 0, stepMs * (points.size - 1), true)
+        dispatch(s2) { ok ->
+            if (!ok) { done(false); return@dispatch }
+            val end = points.last()
+            val p = Path().apply { moveTo(end.x, end.y); lineTo(end.x, end.y + 1f) }
+            dispatch(s2.continueStroke(p, 0, HOLD_END_MS, false), done)
+        }
+    }
+
+    /**
+     * 問號盤：按住一顆珠移一格（顏色會出現），手指不放開，截圖辨識後以手指所在格為起點規劃，接著拖完。
+     * 起點：「關」設定的起點；沒設就用盤面中間那顆。
+     */
+    private fun revealTurn(geo: BoardGeometry, done: (Boolean) -> Unit) {
+        val rows = geo.rows
+        val start = if (stage.green in 0 until geo.cells) stage.green else (rows / 2) * 6 + 2
+        val next = if (start % 6 < 5) start + 1 else start - 1
+        val a = PointF(geo.centerX(start), geo.centerY(start))
+        val b = PointF(geo.centerX(next), geo.centerY(next))
+        status("問號盤：先按住一顆移一格，看顏色…")
+        val hold = Path().apply { moveTo(a.x, a.y); lineTo(a.x + 1f, a.y) }
+        val s1 = GestureDescription.StrokeDescription(hold, 0, HOLD_START_MS, true)
+        dispatch(s1) { ok1 ->
+            if (!ok1) { done(false); return@dispatch }
+            val mv = Path().apply { moveTo(a.x + 1f, a.y); lineTo(b.x, b.y) }
+            val s2 = s1.continueStroke(mv, 0, settings.stepMs.toLong(), true)
+            dispatch(s2) { ok2 ->
+                if (!ok2) { done(false); return@dispatch }
+                val h = Held(s2, next, b, SystemClock.uptimeMillis())
+                // 等顏色出現再截圖（手指還按著；工具列在盤面上方，不用隱藏）
+                main.postDelayed({
+                    takeShot { frame ->
+                        if (frame == null) { release(h) { done(false) }; toast(CAPTURE_FAIL); return@takeShot }
+                        val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
+                        val unknown = rec.unknownCount()
+                        if (unknown > OrbRecognizer.maxUnknown(geo.cells)) {
+                            release(h) { done(false) }
+                            alertManual("問號盤：移了一格後還是有 $unknown 格看不出顏色，這回合只移了一格。請自己轉，或按「校」把這種珠子教給程式")
+                            return@takeShot
+                        }
+                        noteUnknown(0)
+                        solveAndAct(rec, geo, h, done)
+                    }
+                }, 150)
+            }
+        }
+    }
+
+    private fun solveAndAct(rec: Recognition, geo: BoardGeometry, done: (Boolean) -> Unit) = solveAndAct(rec, geo, null, done)
+
+    private fun solveAndAct(rec: Recognition, geo: BoardGeometry, held: Held?, done: (Boolean) -> Unit) {
+        // 手指還按著（問號盤）：任何不轉的情況都要先放手
+        val fail: (Boolean) -> Unit = { ok -> if (held != null) release(held) { done(ok) } else done(ok) }
         // 符石狀態轉成求解旗標（風化/黏腐、觸電、冰封/石化）；無法辨識的格子當冰封：不碰、也不算消除
         val cells = rec.solverCells()
         // 這關有電擊符石：認不出的珠多半是被閃電特效蓋住的電擊符石 → 用最可能的顏色，不碰、必須消
@@ -842,7 +973,7 @@ class AutoTurnService : AccessibilityService() {
         stage.applyOrbMarks(cells)   // 自點必消 / 不消（只有按「完成」轉這一盤時才會有）
         // 「關」標的起點（綠）／終點（紅）：漩渦圖案蓋在珠上，常常認不出顏色而被當成冰封（不能碰），
         // 或被誤認成冰封等狀態，結果無法出發或停下來。使用者標了就一定是能碰的珠：拿掉「不能碰、不能消」
-        for (i in intArrayOf(stage.green, stage.red))
+        for (i in intArrayOf(stage.green, stage.red, held?.cell ?: -1))
             if (i in cells.indices) cells[i] = cells[i] and 0x60.inv()
         // 「關」的條件：真的互相衝突、這盤不可能做到 → 不轉，並說出哪裡衝突
         if (strictTurn && !stage.isEmpty()) {
@@ -851,7 +982,7 @@ class AutoTurnService : AccessibilityService() {
                 lastGoalsOk = false
                 alertManual("條件衝突，沒有轉珠：\n" + bad.joinToString("\n") { "・$it" } +
                     "\n解決：按「關」修改上面列出的條件（或用技能轉珠補足）後再按「完成」")
-                done(false)
+                fail(false)
                 return
             }
         }
@@ -859,13 +990,17 @@ class AutoTurnService : AccessibilityService() {
         // 自我學習：這關常常破不了 → 自動提高搜尋品質
         // 難關不再固定用大範圍（太慢）：從標準範圍開始，時間內自動加寬
         val beam = settings.beam
-        val maxPath = settings.maxPathFor(geo.rows)
+        // 問號盤：已經在轉珠計時中（移了一格），扣掉已用時間＋計算時間，計算也縮短
+        val budget = if (held != null) 600 else settings.solveBudgetMs
+        val maxPath = if (held == null) settings.maxPathFor(geo.rows) else {
+            val used = SystemClock.uptimeMillis() - held.movedAt + budget + 300
+            (settings.maxPathFor(geo.rows) - (used / maxOf(1, settings.stepMs)).toInt()).coerceAtLeast(4)
+        }
         // 形狀盾、NUM、首消剛好…要精準：只走上下左右。斜走手指偏一點就多換一顆珠，轉好的形狀放手時被破壞
         val dirs = if (stage.precise()) 4 else settings.dirs
-        val budget = settings.solveBudgetMs
-        // 起點：「關」設定的起點優先，沒有設定才用盤面上偵測到的「GO」
-        val goCell = if (stage.green >= 0) stage.green else rec.startCell()
-        val ruleInts = stage.toInts(goCell)
+        // 起點：問號盤＝手指現在按著的格子；否則「關」設定的起點優先，沒有設定才用盤面上偵測到的「GO」
+        val goCell = held?.cell ?: if (stage.green >= 0) stage.green else rec.startCell()
+        val ruleInts = if (held != null) stage.toInts(goCell).also { it[10] = goCell } else stage.toInts(goCell)
         val hasStage = !stage.isEmpty()
         status("計算轉法中…" + if (hasStage) "（${stage.summary()}）" else "", important = false)
         worker.execute { try {
@@ -880,7 +1015,7 @@ class AutoTurnService : AccessibilityService() {
                     if (pass == null) {
                         lastNoMove = true
                         toast("盤面全部是不能碰的珠子，沒辦法轉。解決：用技能解除封鎖後再按「轉」；如果是認錯了，按「校」把珠子改回普通")
-                        done(false)
+                        fail(false)
                         return@post
                     }
                     toast("這盤消不出 combo，移動一步結束回合")
@@ -901,7 +1036,7 @@ class AutoTurnService : AccessibilityService() {
                 if (!lastGoalsOk && stage.allMask != 0) {
                     lastNoMove = false
                     alertManual("這盤找不到「首消必消 ${stage.allMaskText()} 第一批全部消光」又符合其他條件的轉法，這回合沒有轉，請自己轉珠")
-                    done(false)
+                    fail(false)
                     return@post
                 }
                 // 條件沒有衝突、只是沒找到完全符合的轉法（沒把握）：照最接近的轉，不停住
@@ -910,7 +1045,10 @@ class AutoTurnService : AccessibilityService() {
                 pathView?.show(pts)
                 updateBar("${res.combos}")
                 status("轉珠中：${res.combos} combo、${res.dirs.size} 步" + if (hasStage) (if (res.goalsMet) "，條件全部做到" else "，條件沒完全做到") else "", important = false)
-                if (settings.autoDrag) {
+                if (held != null) {
+                    // 問號盤：手指一直按著，馬上接著拖（不預覽）
+                    continueDrag(held, pts, settings.stepMs.toLong()) { ok -> pathView?.clear(); done(ok) }
+                } else if (settings.autoDrag) {
                     main.postDelayed({
                         drag(pts, settings.stepMs.toLong()) { ok ->
                             pathView?.clear()
@@ -926,7 +1064,7 @@ class AutoTurnService : AccessibilityService() {
             // 計算時出錯：不要卡住，告訴使用者並結束這一回合
             main.post {
                 toast("計算轉法時出錯（${t.javaClass.simpleName}），這一回合沒有轉。解決：再按一次「轉」；一直出錯請按「校」重新校正")
-                done(false)
+                fail(false)
             }
         } }
     }
