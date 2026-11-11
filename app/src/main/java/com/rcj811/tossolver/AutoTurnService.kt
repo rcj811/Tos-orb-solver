@@ -303,7 +303,8 @@ class AutoTurnService : AccessibilityService() {
             x = if (settings.barX >= 0) settings.barX else maxOf(0, (dm.widthPixels - dp(332)) / 2)
             y = if (settings.barY >= 0) settings.barY else (dm.heightPixels * 0.05f).toInt()
         }
-        root.addView(b)
+        // 按鈕列照自己的寬度（不能跟著狀態列的寬度，否則字短時按鈕會被切掉）
+        root.addView(b, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         wm.addView(root, lp)
         bar = root
         statusView = st
