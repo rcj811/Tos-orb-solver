@@ -929,7 +929,14 @@ class AutoTurnService : AccessibilityService() {
     private fun revealTurn(geo: BoardGeometry, done: (Boolean) -> Unit) {
         val rows = geo.rows
         val start = if (stage.green in 0 until geo.cells) stage.green else (rows / 2) * 6 + 2
-        val next = if (start % 6 < 5) start + 1 else start - 1
+        // 第一步：往右／左／下／上找一格能碰、又不是終點（紅）的格子
+        val blocked = StageRules.NO_TOUCH or StageRules.NOTOUCH_ORB
+        val x0 = start % 6; val y0 = start / 6
+        val next = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
+            .filter { (dx, dy) -> x0 + dx in 0 until 6 && y0 + dy in 0 until rows }
+            .map { (dx, dy) -> (y0 + dy) * 6 + x0 + dx }
+            .firstOrNull { it != stage.red && stage.cellFlags.getOrElse(it) { 0 } and blocked == 0 }
+            ?: (if (x0 < 5) start + 1 else start - 1)
         val a = PointF(geo.centerX(start), geo.centerY(start))
         val b = PointF(geo.centerX(next), geo.centerY(next))
         status("問號盤：先按住一顆移一格，看顏色…")

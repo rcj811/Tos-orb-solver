@@ -207,10 +207,10 @@ class StageRulesTest {
         assertEquals(r.groupMask, back.groupMask); assertEquals(1, back.groupK)
         assertTrue(r.summary().contains("光暗"))
         assertEquals(null, r.firstBatchImpossible(IntArray(30) { it % 6 }))
-        // 只選 1 色 → 不送給求解器，並說明要選 2～4 色
+        // 只選 1 色 → 不送給求解器，並說明要選 2～5 色
         val one = StageRules().apply { groupMask = 1 shl 3 }
         assertEquals(0, one.toInts()[114])
-        assertTrue(one.conflicts(IntArray(30), IntArray(30) { it % 6 }).any { it.contains("2～4") })
+        assertTrue(one.conflicts(IntArray(30), IntArray(30) { it % 6 }).any { it.contains("2～5") })
         // 和首消禁同色 → 矛盾
         val anti = StageRules().apply { groupMask = 0b11000; antiMask = 0b1000 }
         assertTrue(anti.conflicts(IntArray(30), IntArray(30) { it % 6 }).isNotEmpty())

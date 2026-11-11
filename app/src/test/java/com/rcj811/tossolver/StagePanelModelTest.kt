@@ -78,19 +78,20 @@ class StagePanelModelTest {
     }
 
     @Test
-    fun groupNeedsTwoToFourColors() {
+    fun groupNeedsTwoToFiveColors() {
         val m = model()
         m.tapMask(m.mask("groupMask"), LIGHT)
-        assertTrue("只選 1 色要即時說明", m.status().contains("2～4"))
+        assertTrue("只選 1 色要即時說明", m.status().contains("2～5"))
         assertTrue(m.hasConflicts())
-        for (c in listOf(FIRE, WATER, WOOD)) m.tapMask(m.mask("groupMask"), c)
-        assertEquals(4, Integer.bitCount(m.edit.groupMask))
-        m.tapMask(m.mask("groupMask"), DARK)
-        assertEquals("第 5 色不會選上", 4, Integer.bitCount(m.edit.groupMask))
-        assertTrue(m.status().contains("最多選 4 色"))
+        for (c in listOf(FIRE, WATER, WOOD, DARK)) m.tapMask(m.mask("groupMask"), c)
+        assertEquals("火水木光暗五色都能選", 5, Integer.bitCount(m.edit.groupMask))
+        assertTrue(m.edit.groupActive())
+        m.tapMask(m.mask("groupMask"), HEART)
+        assertEquals("第 6 色不會選上", 5, Integer.bitCount(m.edit.groupMask))
+        assertTrue(m.status().contains("最多選 5 色"))
         // 點錯可以再點一下拿掉
         m.tapMask(m.mask("groupMask"), FIRE)
-        assertEquals(3, Integer.bitCount(m.edit.groupMask))
+        assertEquals(4, Integer.bitCount(m.edit.groupMask))
         assertFalse(m.hasConflicts())
     }
 
@@ -236,6 +237,19 @@ class StagePanelModelTest {
         assertEquals(2, m.taps)
         assertFalse(m.hasConflicts())
         assertTrue(StageRules().apply { deserialize(m.edit.serialize()) }.revealMove)
+    }
+
+    @Test
+    fun hiddenBoardWithStartEndAndBan() {
+        // 問號盤＋起點／終點＋首消不能消光暗：可以一起設定、沒有衝突
+        val m = model()
+        m.tapButton(m.find("reveal"))
+        m.selectBrush(m.brushes.indexOfFirst { it.name == "起點(綠)" }); m.tapCell(0)
+        m.selectBrush(m.brushes.indexOfFirst { it.name == "終點(紅)" }); m.tapCell(29)
+        m.tapMask(m.mask("antiMask"), LIGHT); m.tapMask(m.mask("antiMask"), DARK)
+        assertFalse(m.status(), m.hasConflicts())
+        val sum = m.edit.summary()
+        for (t in listOf("問號盤", "起點", "終點", "首消禁 光暗")) assertTrue(sum, sum.contains(t))
     }
 
     @Test

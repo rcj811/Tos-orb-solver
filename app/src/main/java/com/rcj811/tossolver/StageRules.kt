@@ -38,7 +38,7 @@ class StageRules {
     var shapeType = 0      // 形狀盾：0 無、1 十字、2 T 形、3 L 形（首批以這個形狀消除 5 粒同色）
     var shapeMin = 0       // 形狀盾：至少幾組
     var allMask = 0        // 首消必消（全部消光，第一批就要消掉）：這些珠種盤面上的珠全部要消掉（3 的倍數每組 3 顆，不是就用 4、5 顆一組）
-    var groupMask = 0      // 同色組數盾：這些珠種（2～4 種）在第一批各消剛好 groupK 組、每組剛好 3 顆；其他珠種不限
+    var groupMask = 0      // 同色組數盾：這些珠種（2～5 種）在第一批各消剛好 groupK 組、每組剛好 3 顆；其他珠種不限
     var groupK = 1
     var revealMove = false // 問號盤：先按住一顆移一格讓顏色出現，再規劃（不送給求解器，App 自己處理）
     var sticky = false     // 黏手路徑：碰過的格不能再碰
@@ -101,8 +101,8 @@ class StageRules {
         return v
     }
 
-    /** 同色組數盾有效：選了 2～4 色 */
-    fun groupActive() = Integer.bitCount(groupMask) in 2..4 && groupK > 0
+    /** 同色組數盾有效：選了 2～5 色 */
+    fun groupActive() = Integer.bitCount(groupMask) in 2..5 && groupK > 0
 
     fun groupText() = "同色組數盾 ${StageConds.maskText(groupMask)} 各 $groupK 組（每組 3 顆）"
 

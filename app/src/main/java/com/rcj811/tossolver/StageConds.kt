@@ -407,13 +407,13 @@ object StageConds {
             { r, k -> val (t, m) = choices[k]; r.shapeType = t; r.shapeMin = m; null }))
     }
 
-    /** 同色組數盾：選 2～4 色，第一批每色各剛好 K 組、每組剛好 3 顆 */
+    /** 同色組數盾：選 2～5 色，第一批每色各剛好 K 組、每組剛好 3 顆 */
     private object Group : Cond("同色組數盾") {
         override fun precise(r: StageRules) = r.groupActive()
         override fun isSet(r: StageRules) = r.groupMask != 0
         override fun clear(r: StageRules) { r.groupMask = 0; r.groupK = 1 }
         override fun copy(dst: StageRules, src: StageRules) { dst.groupMask = src.groupMask; dst.groupK = src.groupK }
-        override fun summary(r: StageRules) = if (!isSet(r)) emptyList() else listOf(if (r.groupActive()) r.groupText() else "同色組數盾（要選 2～4 色）")
+        override fun summary(r: StageRules) = if (!isSet(r)) emptyList() else listOf(if (r.groupActive()) r.groupText() else "同色組數盾（要選 2～5 色）")
         override fun save(r: StageRules) = listOf("gm=${r.groupMask}", "gk=${r.groupK}")
         override fun load(r: StageRules, k: String, v: String): Boolean = when (k) {
             "gm" -> { r.groupMask = (v.toIntOrNull() ?: 0) and 0x3F; true }
@@ -423,7 +423,7 @@ object StageConds {
         override fun conflicts(r: StageRules): List<String> {
             if (r.groupMask == 0) return emptyList()
             val n2 = Integer.bitCount(r.groupMask)
-            if (n2 !in 2..4) return listOf("同色組數盾要選 2～4 種顏色（現在選了 $n2 種）")
+            if (n2 !in 2..5) return listOf("同色組數盾要選 2～5 種顏色（現在選了 $n2 種）")
             val out = ArrayList<String>()
             if (r.groupMask and r.antiMask != 0) out.add("同色組數盾要消 ${maskText(r.groupMask and r.antiMask)}，但首消禁 ${maskText(r.antiMask)}，兩個條件矛盾")
             if (r.firstExact in 0 until n2 * r.groupK) out.add("同色組數盾第一批至少 ${n2 * r.groupK} 組，但首消剛好 ${r.firstExact} Combo，兩個條件矛盾")
@@ -439,9 +439,9 @@ object StageConds {
         override val controls: List<Ctl> = listOf(
             Ctl.Choice("groupK", { r -> "同色組數：各 ${r.groupK} 組" }, listOf("各 1 組", "各 2 組", "各 3 組"),
                 { r -> r.groupK - 1 }, { r, k -> r.groupK = k + 1; null }),
-            Ctl.Mask("groupMask", "同色組數(選2~4色)", { it.groupMask }) { r, c ->
+            Ctl.Mask("groupMask", "同色組數(選2~5色)", { it.groupMask }) { r, c ->
                 val bit = 1 shl c
-                if (r.groupMask and bit == 0 && Integer.bitCount(r.groupMask) >= 4) "同色組數盾最多選 4 色"
+                if (r.groupMask and bit == 0 && Integer.bitCount(r.groupMask) >= 5) "同色組數盾最多選 5 色"
                 else {
                     r.groupMask = r.groupMask xor bit
                     if (r.groupMask and bit != 0 && r.antiMask and bit != 0) { r.antiMask = r.antiMask and bit.inv(); "已把${ORB[c]}從「首消不能消」拿掉（兩個條件不能同一色）" } else null
