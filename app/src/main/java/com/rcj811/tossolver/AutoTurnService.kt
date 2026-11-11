@@ -442,6 +442,10 @@ class AutoTurnService : AccessibilityService() {
 
     // ---------------- 讀取王的技能（OCR） ----------------
 
+    /** 自動讀王：讀過之後要先轉完一回合才能再讀；上次讀的時間（60 秒內不重讀） */
+    private var readSinceTurn = false
+    private var lastBossReadAt = 0L
+
     private fun alreadyTriedRead(sig: FloatArray): Boolean =
         StageMatcher.best(sig, bossReadTried.map { StagePreset(it, StageRules()) }).first >= 0
 
@@ -604,6 +608,8 @@ class AutoTurnService : AccessibilityService() {
         lastSeen = null; stableCount = 0; lastActed = null
         turnsDone = 0
         bossReadTried.clear()
+        readSinceTurn = false
+        lastBossReadAt = 0L
         lastActionAt = SystemClock.uptimeMillis()
         presets = presetStore.load()
         lastBoardAt = SystemClock.uptimeMillis()
@@ -688,10 +694,15 @@ class AutoTurnService : AccessibilityService() {
                     if (!running) { busy = false; updateBar(); return@captureClean }
                     applyStageFor(clean ?: frame, geo)
                     // 沒記過的關卡：自動長按王讀取技能，記住後重新判斷這盤
-                    if (activePreset < 0 && settings.autoReadBoss && clean != null) {
+                    // 王一直在動（旋轉、發光）時每張截圖都不一樣，會被當成新關卡一直重讀、永遠不轉：
+                    // 讀過一次就一定先轉完這回合，而且 60 秒內不再自動讀
+                    val readAllowed = !readSinceTurn && SystemClock.uptimeMillis() - lastBossReadAt > 60_000
+                    if (activePreset < 0 && settings.autoReadBoss && clean != null && readAllowed) {
                         val sig = StageMatcher.signature(clean, geo)
                         if (sig != null && !alreadyTriedRead(sig)) {
                             bossReadTried.add(sig)
+                            readSinceTurn = true
+                            lastBossReadAt = SystemClock.uptimeMillis()
                             autoReadBoss(clean, geo, sig)
                             return@captureClean
                         }
@@ -709,6 +720,7 @@ class AutoTurnService : AccessibilityService() {
                             return@solveAndAct
                         }
                         if (ok) turnsDone++
+                        readSinceTurn = false
                         lastActionAt = SystemClock.uptimeMillis()   // 從轉完開始算（之後還有消珠、攻擊、換關動畫）
                         next(if (ok) 2500 else 1000)
                     }
