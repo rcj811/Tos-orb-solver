@@ -696,9 +696,9 @@ class AutoTurnService : AccessibilityService() {
                 val x = (cx + dx * r / 2).toInt().coerceIn(0, f.width - 1)
                 val y = (cy + dy * r / 2).toInt().coerceIn(0, f.height - 1)
                 val c = f.pixels[y * f.width + x]
-                avg[i][0] += (c shr 16) and 255; avg[i][1] += (c shr 8) and 255; avg[i][2] += c and 255; k++
+                avg[i][0] += ((c shr 16) and 255).toFloat(); avg[i][1] += ((c shr 8) and 255).toFloat(); avg[i][2] += (c and 255).toFloat(); k++
             }
-            for (j in 0..2) avg[i][j] /= k
+            for (j in 0..2) avg[i][j] /= k.toFloat()
         }
         val m = FloatArray(3); for (a in avg) for (j in 0..2) m[j] += a[j] / n
         if (m.sum() / 3 < 35) return false   // 全黑（過場）
