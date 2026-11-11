@@ -420,8 +420,18 @@ class AutoTurnService : AccessibilityService() {
         }, 90)
     }
 
+    /** 截圖；被系統拒絕（兩次截圖間隔太短等）時等 0.4 秒重試，最多 3 次 */
+    private fun takeShot(cb: (Frame?) -> Unit) = takeShotTry(cb, 0)
+
+    private fun takeShotTry(cb: (Frame?) -> Unit, attempt: Int) {
+        takeShotOnce { f ->
+            if (f != null || attempt >= 3) cb(f)
+            else main.postDelayed({ takeShotTry(cb, attempt + 1) }, 400)
+        }
+    }
+
     @TargetApi(30)
-    private fun takeShot(cb: (Frame?) -> Unit) {
+    private fun takeShotOnce(cb: (Frame?) -> Unit) {
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
                 override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
@@ -988,10 +998,24 @@ class AutoTurnService : AccessibilityService() {
                 val board = OrbRecognizer.maskedBoard(rec)
                 val ready = rec.unknownCount() <= OrbRecognizer.maxUnknown(geo.cells)
                 if (ready) noteUnknown(rec.unknownCount())
-                if (ready && last != null && OrbRecognizer.sameMasked(board, last)) onOnceTap(rules)
+                // 間隔 0.5 秒再截下一張（太快會被系統拒絕截圖）
+                if (ready && last != null && OrbRecognizer.sameMasked(board, last)) main.postDelayed({ onOnceTap(rules) }, 500)
                 else waitBoardThenTurn(rules, since, if (ready) board else null)
             }
         }, 700)
+    }
+
+    /** 幫使用者關掉遊戲的技能卡：點一下盤面中央（沒有卡片時點盤面也不會移動珠子），再等卡片收起來的動畫 */
+    private fun closeSkillCard(then: () -> Unit) {
+        val geo = settings.geometry
+        val dm = resources.displayMetrics
+        status("關閉技能卡中…")
+        main.postDelayed({
+            tap(dm.widthPixels / 2f, geo.top + geo.cell * geo.rows / 2f) {
+                status("等盤面出現後轉這一回合…")
+                main.postDelayed(then, 1200)
+            }
+        }, 400)   // 等自轉珠的說明框先消失
     }
 
     private fun onPlusTap() {
@@ -1023,11 +1047,10 @@ class AutoTurnService : AccessibilityService() {
                 val dlg = android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                     .setTitle("技能破解說明")
                     .setMessage(SkillGuide.text(parse.skills, rules))
-                    .setPositiveButton("確定（關掉技能卡後自動轉）") { _, _ ->
-                        toast("請關掉技能視窗，看到盤面後會自動轉這一回合")
-                        waitBoardThenTurn(rules, SystemClock.uptimeMillis(), null)
+                    .setPositiveButton("確定（自動關掉技能卡後轉珠）") { _, _ ->
+                        closeSkillCard { waitBoardThenTurn(rules, SystemClock.uptimeMillis(), null) }
                     }
-                    .setNegativeButton("只配置、不轉", null)
+                    .setNegativeButton("只配置、不轉") { _, _ -> closeSkillCard {} }
                     .create()
                 dlg.window?.setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
                 dlg.show()
