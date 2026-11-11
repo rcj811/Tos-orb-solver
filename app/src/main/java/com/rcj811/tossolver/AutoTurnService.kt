@@ -260,7 +260,6 @@ class AutoTurnService : AccessibilityService() {
             setTextColor(Color.WHITE)
             maxLines = 4
             ellipsize = android.text.TextUtils.TruncateAt.END
-            maxWidth = dp(340)
             setPadding(dp(10), dp(4), dp(10), dp(4))
             background = GradientDrawable().apply {
                 cornerRadius = dp(10).toFloat()
@@ -269,7 +268,8 @@ class AutoTurnService : AccessibilityService() {
             // 點狀態列＝清掉訊息
             setOnClickListener { text = if (running) "自動轉珠中" else "待機"; statusAt = 0L }
         }
-        root.addView(st, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(3) })
+        // 狀態列寬度＝按鈕列寬度（字長就換行），訊息變長變短時按鈕不會左右移動
+        root.addView(st, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(3) })
         val b = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
