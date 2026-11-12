@@ -33,7 +33,6 @@ class MainActivity : Activity() {
     private lateinit var autoStatus: TextView
     private lateinit var enableBtn: Button
     private lateinit var modeBtn: Button
-    private lateinit var readBossBtn: Button
     private lateinit var rulesText: TextView
     private lateinit var stepBtn: Button
     private lateinit var timeBtn: Button
@@ -85,8 +84,7 @@ class MainActivity : Activity() {
         root.addView(row(enableBtn, button("允許受限設定") { goRestricted() }))
 
         modeBtn = button("") { settings.autoDrag = !settings.autoDrag; refreshAuto() }
-        readBossBtn = button("") { settings.autoReadBoss = !settings.autoReadBoss; refreshAuto() }
-        root.addView(row(modeBtn, readBossBtn))
+        root.addView(row(modeBtn))
 
         stepBtn = button("") { settings.stepMs = next(AppSettings.STEP_CHOICES, settings.stepMs); refreshAuto() }
         timeBtn = button("") { settings.timeLimitSec = next(AppSettings.TIME_CHOICES, settings.timeLimitSec); refreshAuto() }
@@ -372,7 +370,6 @@ class MainActivity : Activity() {
         autoStatus.setTextColor(Color.parseColor(if (on && geo) "#69F0AE" else "#FFD54F"))
         enableBtn.text = if (on) "無障礙設定（已開啟）" else "開啟無障礙設定"
         modeBtn.text = if (settings.autoDrag) "模式：自動拖曳" else "模式：只顯示路徑"
-        readBossBtn.text = if (settings.autoReadBoss) "自動讀王技能：開" else "自動讀王技能：關"
         stepBtn.text = "每步 ${settings.stepMs} ms"
         timeBtn.text = "轉珠時間 ${settings.timeLimitSec} 秒"
         qualityBtn.text = if (settings.beam == 450) "品質：標準" else "品質：高（較慢）"

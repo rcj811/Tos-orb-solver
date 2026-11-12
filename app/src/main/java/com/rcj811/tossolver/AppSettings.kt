@@ -43,11 +43,6 @@ class AppSettings(context: Context) {
         get() = sp.getInt("dirs", 8)
         set(v) = sp.edit().putInt("dirs", v).apply()
 
-    /** 自動執行遇到沒記過的關卡時，自動長按王讀取技能說明 */
-    var autoReadBoss: Boolean
-        get() = sp.getBoolean("autoReadBoss", true)
-        set(v) = sp.edit().putBoolean("autoReadBoss", v).apply()
-
     /** 懸浮工作列位置（-1 = 預設：上方中央） */
     var barX: Int
         get() = sp.getInt("barX", -1)

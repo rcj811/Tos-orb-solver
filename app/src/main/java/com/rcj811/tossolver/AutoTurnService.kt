@@ -82,7 +82,6 @@ class AutoTurnService : AccessibilityService() {
     private var lastGoalsOk = true
     private var onlineLearned = 0        // 自我學習：累積但還沒存檔的顏色樣本數
     private var lastNoMove = false        // 上一次求解：整盤都不能碰
-    private val bossReadTried = ArrayList<FloatArray>()   // 這次執行已嘗試讀過技能的關卡（敵人畫面特徵）
     private var lastActionAt = 0L     // 上次轉珠的時間
     private lateinit var model: ColorModel
     private var stateModel = StateModel()
@@ -407,17 +406,31 @@ class AutoTurnService : AccessibilityService() {
     }
 
     /** 暫時隱藏工作列再截圖（判斷關卡、錄製規則、校正用；每回合最多一次，避免閃爍） */
+    /**
+     * 「乾淨」截圖（判斷關卡、讀 NUM、讀技能卡用）：不再把工具列藏起來（會一閃一閃），
+     * 改成截圖後把工具列（含狀態列）那一塊塗黑，不讓它的字和顏色干擾判斷。
+     */
     private fun captureClean(cb: (Frame?) -> Unit) {
         if (Build.VERSION.SDK_INT < 30) { cb(null); return }
         pathView?.clear()
         val b = bar
-        b?.visibility = View.INVISIBLE
+        val rect = b?.let { v ->
+            val xy = IntArray(2)
+            v.getLocationOnScreen(xy)
+            android.graphics.Rect(xy[0], xy[1], xy[0] + v.width, xy[1] + v.height)
+        }
         main.postDelayed({
             takeShot { f ->
-                b?.visibility = View.VISIBLE
+                if (f != null && rect != null) maskRect(f, rect)
                 cb(f)
             }
-        }, 90)
+        }, 60)
+    }
+
+    private fun maskRect(f: Frame, r: android.graphics.Rect) {
+        val x0 = r.left.coerceIn(0, f.width); val x1 = r.right.coerceIn(0, f.width)
+        val y0 = r.top.coerceIn(0, f.height); val y1 = r.bottom.coerceIn(0, f.height)
+        for (y in y0 until y1) java.util.Arrays.fill(f.pixels, y * f.width + x0, y * f.width + x1, 0xFF000000.toInt())
     }
 
     /** 截圖；被系統拒絕（兩次截圖間隔太短等）時等 0.4 秒重試，最多 3 次 */
@@ -496,46 +509,9 @@ class AutoTurnService : AccessibilityService() {
 
     // ---------------- 讀取王的技能（OCR） ----------------
 
-    /** 自動讀王：讀過之後要先轉完一回合才能再讀；上次讀的時間（60 秒內不重讀） */
-    private var readSinceTurn = false
-    private var lastBossReadAt = 0L
-
-    private fun alreadyTriedRead(sig: FloatArray): Boolean =
-        StageMatcher.best(sig, bossReadTried.map { StagePreset(it, StageRules()) }).first >= 0
-
-    /** 王在畫面上的位置：敵人區中央 */
-    private fun bossPoint(frame: Frame, geo: BoardGeometry): PointF {
-        val top = frame.height * 0.06f
-        val bottom = maxOf(top + geo.cell, geo.top - geo.cell * 1.3f)
-        return PointF(frame.width / 2f, (top + bottom) / 2f)
-    }
-
-    /** 自動執行：長按王 → 截圖讀文字 → 點一下關掉視窗 → 記住這關的條件 */
-    private fun autoReadBoss(frame: Frame, geo: BoardGeometry, sig: FloatArray) {
-        val p = bossPoint(frame, geo)
-        toast("新關卡：讀取王的技能中…")
-        val press = Path().apply { moveTo(p.x, p.y) }
-        dispatch(GestureDescription.StrokeDescription(press, 0, 850)) {
-            main.postDelayed({
-                captureClean { shot ->
-                    val finish = { text: String? ->
-                        // 點一下盤面中央關掉技能視窗（沒有視窗時，點一下盤面也不會移動珠子）
-                        tap(frame.width / 2f, geo.top + geo.cell * geo.rows / 2f) {
-                            main.postDelayed({ onBossRead(sig, SkillParser.parse(text ?: ""), auto = true) }, 700)
-                        }
-                    }
-                    if (shot == null) finish(null) else SkillOcr.read(shot) { finish(it) }
-                }
-            }, 900)
-        }
-    }
-
-    /** 讀到技能後：記住關卡（合併使用者畫過的格子），並決定能不能繼續自動 */
-    private fun onBossRead(sig: FloatArray, parse: SkillParser.Result, auto: Boolean) {
-        if (!parse.found) {
-            if (auto) { toast("沒讀到王的技能，這關先照一般盤打"); next(300) }
-            return
-        }
+    /** 按「＋」讀到技能後：記住關卡（合併使用者畫過的格子） */
+    private fun onBossRead(sig: FloatArray, parse: SkillParser.Result) {
+        if (!parse.found) return
         val list = presetStore.load()
         val (idx, _) = StageMatcher.best(sig, list)
         val rules = if (idx >= 0) StageRules().apply { copyFrom(list[idx].rules); mergeFrom(parse.rules) } else parse.rules
@@ -546,11 +522,6 @@ class AutoTurnService : AccessibilityService() {
         stage = StageRules()
         updateBar()
         toast("讀到王的技能：${parse.skills.joinToString("、")}\n${parse.summary()}")
-        if (!auto) return
-        lastActionAt = SystemClock.uptimeMillis()
-        // 需要補充的機制：提示，但先照已讀到的條件繼續轉，不停住
-        if (parse.manual.isNotEmpty()) toast("這個王有需要你補充的機制：${parse.manual.joinToString("、")}（可之後按「關」補充），先照已讀到的條件轉")
-        next(400)   // 重新截圖：這次就會套用剛記住的條件
     }
 
     // ---------------- ✕ 關閉 ----------------
@@ -666,9 +637,6 @@ class AutoTurnService : AccessibilityService() {
         running = true
         lastSeen = null; stableCount = 0; lastActed = null
         turnsDone = 0
-        bossReadTried.clear()
-        readSinceTurn = false
-        lastBossReadAt = 0L
         lastScreen = null
         lastScreenChangeAt = SystemClock.uptimeMillis()
         lastActionAt = SystemClock.uptimeMillis()
@@ -812,20 +780,7 @@ class AutoTurnService : AccessibilityService() {
                 captureClean { clean ->
                     if (!running) { busy = false; updateBar(); return@captureClean }
                     applyStageFor(clean ?: frame, geo)
-                    // 沒記過的關卡：自動長按王讀取技能，記住後重新判斷這盤
-                    // 王一直在動（旋轉、發光）時每張截圖都不一樣，會被當成新關卡一直重讀、永遠不轉：
-                    // 讀過一次就一定先轉完這回合，而且 60 秒內不再自動讀
-                    val readAllowed = !readSinceTurn && SystemClock.uptimeMillis() - lastBossReadAt > 60_000
-                    if (activePreset < 0 && settings.autoReadBoss && clean != null && readAllowed) {
-                        val sig = StageMatcher.signature(clean, geo)
-                        if (sig != null && !alreadyTriedRead(sig)) {
-                            bossReadTried.add(sig)
-                            readSinceTurn = true
-                            lastBossReadAt = SystemClock.uptimeMillis()
-                            autoReadBoss(clean, geo, sig)
-                            return@captureClean
-                        }
-                    }
+                    // 自動轉珠不會自己長按王讀技能卡（只有按「＋」才讀）
                     // NUM 盾數字每回合會變：每回合都重新讀敵人身上的數字
                     withNum(clean ?: frame, geo) num@{
                     if (!running) { busy = false; updateBar(); return@num }
@@ -839,7 +794,6 @@ class AutoTurnService : AccessibilityService() {
                             return@solveAndAct
                         }
                         if (ok) turnsDone++
-                        readSinceTurn = false
                         lastActionAt = SystemClock.uptimeMillis()   // 從轉完開始算（之後還有消珠、攻擊、換關動畫）
                         next(if (ok) 2500 else 1000)
                     }
@@ -875,7 +829,6 @@ class AutoTurnService : AccessibilityService() {
                 }
                 revealTurn(geo) { ok ->
                     if (ok) turnsDone++
-                    readSinceTurn = false
                     lastActionAt = SystemClock.uptimeMillis()
                     lastBoardAt = lastActionAt
                     next(if (ok) 2500 else 1000)
@@ -1184,7 +1137,7 @@ class AutoTurnService : AccessibilityService() {
                 updateBar()
                 val parse = SkillParser.parse(text ?: "")
                 if (!parse.found) { toast("沒讀到王的技能卡。請先在遊戲裡長按王打開技能說明，再按「＋」"); return@read }
-                onBossRead(sig, parse, auto = false)
+                onBossRead(sig, parse)
                 val list = presetStore.load()
                 val (idx, _) = StageMatcher.best(sig, list)
                 val rules = if (idx >= 0) StageRules().apply { copyFrom(list[idx].rules) } else parse.rules
@@ -1226,7 +1179,7 @@ class AutoTurnService : AccessibilityService() {
                 updateBar()
                 val parse = SkillParser.parse(text ?: "")
                 if (parse.found) {
-                    onBossRead(sig, parse, auto = false)
+                    onBossRead(sig, parse)
                     if (parse.manual.isNotEmpty()) toast("需要補充：${parse.manual.joinToString("、")}。關掉技能視窗後再按一次「關」")
                     return@read
                 }
