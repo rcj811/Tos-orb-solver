@@ -53,8 +53,6 @@ import kotlin.math.abs
 class AutoTurnService : AccessibilityService() {
 
     companion object {
-        private const val NO_BOARD_PAUSE_MS = 15_000L   // 看不到盤面、畫面也靜止多久就暫停自動轉珠
-        private const val NO_BOARD_MAX_MS = 60_000L     // 畫面一直在動（過場、會動的選單）也最多等這麼久
         private const val SCREEN_CHANGE = 0.025f        // 前後兩張截圖平均亮度差超過這個比例＝畫面在變化（過場中）
         @Volatile
         var instance: AutoTurnService? = null
@@ -174,7 +172,7 @@ class AutoTurnService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
-    override fun onInterrupt() = stopAuto(null)
+    override fun onInterrupt() {}   // 不自動停（只有按 ■ 才停）
 
     override fun onUnbind(intent: Intent?): Boolean {
         cleanup()
@@ -508,8 +506,17 @@ class AutoTurnService : AccessibilityService() {
     }
 
     /** 真的過不了：停止並震動提醒使用者手動處理 */
+    private var lastAlert = ""
+    private var lastAlertAt = 0L
+
+    /**
+     * 需要使用者處理的情況：提示＋震動，但「不會」停止自動轉珠（只有按 ■ 才停）。
+     * 自動模式會繼續等下一個能轉的盤面；同一個提示 20 秒內不重複震動。
+     */
     private fun alertManual(msg: String) {
-        stopAuto(null)
+        val now = SystemClock.uptimeMillis()
+        if (msg == lastAlert && now - lastAlertAt < 20_000) return
+        lastAlert = msg; lastAlertAt = now
         // 重要警告：訊息列開著就顯示在上面；關掉時用系統小訊息跳出來
         if (statusView != null && settings.showStatus) status("⚠ " + msg) else Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         runCatching {
@@ -656,6 +663,8 @@ class AutoTurnService : AccessibilityService() {
         lastSeen = null; stableCount = 0; lastActed = null
         turnsDone = 0
         lastScreen = null
+        lumRef = 0f
+        noMoveCount = 0
         lastScreenChangeAt = SystemClock.uptimeMillis()
         lastActionAt = SystemClock.uptimeMillis()
         presets = presetStore.load()
@@ -670,6 +679,21 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private var hiddenCount = 0
+    private var noMoveCount = 0
+    private var lumRef = 0f   // 上次轉珠時盤面的亮度
+
+    /** 盤面平均亮度（每格中間 9 點） */
+    private fun boardLum(f: Frame, geo: BoardGeometry): Float {
+        var sum = 0f; var n = 0
+        val d = geo.cell * 0.12f
+        for (i in 0 until geo.cells) for (dy in -1..1) for (dx in -1..1) {
+            val x = (geo.centerX(i) + dx * d).toInt().coerceIn(0, f.width - 1)
+            val y = (geo.centerY(i) + dy * d).toInt().coerceIn(0, f.height - 1)
+            val c = f.pixels[y * f.width + x]
+            sum += (((c shr 16) and 255) + ((c shr 8) and 255) + (c and 255)) / 3f; n++
+        }
+        return sum / n
+    }
 
     /** 盤面每格中間的平均顏色幾乎一樣（整盤被蓋成同一種問號珠），而且不是全黑 */
     private fun looksHidden(f: Frame, geo: BoardGeometry): Boolean {
@@ -765,7 +789,13 @@ class AutoTurnService : AccessibilityService() {
         val pending = NativeSolver.countCombos(solveCells, geo.rows)
         // 遊戲的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
         // 改成只看是否靜止；有現成三連時多確認一張截圖，避免抓到消除動畫中間的畫面
-        val ready = unknown <= OrbRecognizer.maxUnknown(geo.cells)
+        // 攻擊／技能動畫時遊戲會把盤面蓋暗（亮度約剩一半）：不能當成可以轉的盤面，
+        // 暗掉的珠會被誤認成冰封、石化，整盤「不能碰」而停住
+        val lum = boardLum(frame, geo)
+        val dimmed = lumRef > 0f && lum < lumRef * 0.7f
+        if (dimmed) lastScreenChangeAt = now   // 動畫中：暫停秒數從頭算
+        val ready = !dimmed && unknown <= OrbRecognizer.maxUnknown(geo.cells)
+        if (dimmed) status("動畫中（盤面變暗），等待下一回合…", important = false)
         if (ready) { lastBoardAt = now; noteUnknown(unknown) }
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張
         val needStable = if (unknown > 0 && pending > 0) 3 else 2
@@ -780,6 +810,7 @@ class AutoTurnService : AccessibilityService() {
             val waitedTooLong = now - waitingSince > 5000
             if (stableCount >= needStable || waitedTooLong) {
                 waitingSince = 0L
+                lumRef = lum   // 記住正常盤面的亮度（之後變暗＝動畫中）
                 lastActed = board
                 lastActedAt = now
                 lastActionAt = now
@@ -807,10 +838,14 @@ class AutoTurnService : AccessibilityService() {
                     if (why != null) toast("$why，照最接近的轉法轉")
                     solveAndAct(rec, geo) { ok ->
                         if (lastNoMove) {
-                            busy = false
-                            alertManual("盤面全部是不能碰的珠子，自動執行已停止，請手動處理（或到設定把這類珠子改成「可以碰」）")
+                            // 可能是動畫中的畫面被誤認：不停，等一下再看；連續 3 次才提醒
+                            noMoveCount++
+                            if (noMoveCount >= 3) alertManual("盤面全部是不能碰的珠子，沒辦法轉。請手動處理（或按「校」把這類珠子改回普通），自動轉珠會繼續等")
+                            lastActed = null
+                            next(1500)
                             return@solveAndAct
                         }
+                        noMoveCount = 0
                         if (ok) turnsDone++
                         lastActionAt = SystemClock.uptimeMillis()   // 從轉完開始算（之後還有消珠、攻擊、換關動畫）
                         next(if (ok) 2500 else 1000)
@@ -832,7 +867,7 @@ class AutoTurnService : AccessibilityService() {
             status(if (changing) "過場中（畫面在變化），等待下一場的盤面…" else "沒看到轉珠盤面（$unknown 格認不出來），等待中…", important = false)
         }
         // 問號盤：畫面靜止、盤面每格長得都一樣（被蓋成問號）連續兩次 → 這關「關」有開「問號盤」就先移一格看顏色
-        hiddenCount = if (!ready && !changing && looksHidden(frame, geo)) hiddenCount + 1 else 0
+        hiddenCount = if (!ready && !dimmed && !changing && looksHidden(frame, geo)) hiddenCount + 1 else 0
         if (hiddenCount >= 2 && now - lastActionAt > 1500) {
             hiddenCount = 0
             busy = true
@@ -855,14 +890,9 @@ class AutoTurnService : AccessibilityService() {
             return
         }
 
-        // 偵測不到轉珠盤面、畫面也靜止 15 秒（過場動畫在動時秒數會重算）；或連續 60 秒都沒有盤面：自動暫停
-        val quietFor = now - maxOf(lastBoardAt, lastActionAt, lastScreenChangeAt)
-        val noBoardFor = now - maxOf(lastBoardAt, lastActionAt)
-        if (!ready && (quietFor > NO_BOARD_PAUSE_MS || noBoardFor > NO_BOARD_MAX_MS)) {
-            busy = false
-            stopAuto("沒有偵測到轉珠盤面（$unknown 格認不出來），自動轉珠已暫停。\n解決：回到戰鬥畫面後按 ▶；如果盤面明明在，按「校」對齊格線、點問號確認後再按 ▶")
-            return
-        }
+        // 不會自動暫停（只有按 ■ 才停）：一直看不到盤面就在訊息列說明，繼續等
+        if (!ready && !dimmed && now - maxOf(lastBoardAt, lastActionAt, lastScreenChangeAt) > 15_000)
+            status("一直沒看到轉珠盤面（$unknown 格認不出來），繼續等待…如果盤面明明在，按「校」對齊格線、點問號確認", important = false)
         next(600)
     }
 
