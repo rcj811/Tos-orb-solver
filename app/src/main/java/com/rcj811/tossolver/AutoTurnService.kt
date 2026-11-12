@@ -599,7 +599,9 @@ class AutoTurnService : AccessibilityService() {
             // 「關」有開「問號盤」時，部分格子認不出來也先移一格
             val hidden = looksHidden(frame, geo)
             if (hidden || (unknown > OrbRecognizer.maxUnknown(geo.cells) && stage.revealMove)) {
-                revealTurn(geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "問號盤這回合沒轉完") }
+                // 先讀 NUM（按「完成」照面板設定的數字），再移一格看顏色、照條件轉完
+                val reveal = { revealTurn(geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "問號盤這回合沒轉完") } }
+                if (forced != null) reveal() else withNum(frame, geo) { reveal() }
                 return@captureClean
             }
             if (unknown > geo.cells / 2) {
@@ -879,12 +881,13 @@ class AutoTurnService : AccessibilityService() {
             captureClean { clean ->
                 if (!running) { busy = false; updateBar(); return@captureClean }
                 applyStageFor(clean ?: frame, geo)
-                revealTurn(geo) { ok ->
+                // 問號盤也要先讀 NUM 數字（例如 NUM 21），再移一格看顏色、照條件轉完
+                withNum(clean ?: frame, geo) { revealTurn(geo) { ok ->
                     if (ok) turnsDone++
                     lastActionAt = SystemClock.uptimeMillis()
                     lastBoardAt = lastActionAt
                     next(if (ok) 2500 else 1000)
-                }
+                } }
             }
             return
         }
