@@ -1013,7 +1013,9 @@ class AutoTurnService : AccessibilityService() {
                 // 首消必消沒湊到（第一批沒把那些顏色全部消光）：不轉，交給使用者自己處理（不讓程式想太久）
                 if (!lastGoalsOk && stage.allMask != 0) {
                     lastNoMove = false
-                    alertManual("這盤找不到「首消必消 ${stage.allMaskText()} 第一批全部消光」又符合其他條件的轉法，這回合沒有轉，請自己轉珠")
+                    alertManual("這盤找不到「首消必消 ${stage.allMaskText()} 第一批全部消光」又符合其他條件的轉法，這回合沒有轉，請自己轉珠。" +
+                        "目前最多只能走 $maxPath 步（每步 ${settings.stepMs} 毫秒、轉珠時間 ${settings.timeLimitSec} 秒）；" +
+                        "到 App 設定把「每步」調快或「轉珠時間」調長，可以走更多步、比較容易湊到")
                     fail(false)
                     return@post
                 }

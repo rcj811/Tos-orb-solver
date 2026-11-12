@@ -673,6 +673,16 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
             }
         }
         for (int k = 0; k < NCOND; k++) X.boost[k] = 1.0f;
+        // 全部消光（1～2 色）還沒湊到：不湊到就整回合不轉，值得多花一點時間：不加重、只把搜尋加寬再找
+        if (weak[K_ALL] && !best.ok) {
+            const double capAll = cfg.timeBudgetMs <= 0 ? 0 : cfg.timeBudgetMs * 3.0;   // 最多用到 3 倍時間（約 4.5 秒）
+            for (int bm = cfg.beam * 3; bm <= 20000 && !best.ok; bm *= 3) {
+                if (capAll > 0 && elapsed() + perBeam * bm * 1.15 > capAll) break;
+                X.cfg.beam = bm;
+                State cand;
+                if (beamSearch(b, cand)) { score(cand); if (better(cand, best)) best = cand; }
+            }
+        }
         X.cfg.beam = cfg.beam;
     }
     // 2) 時間還夠：beam ×3 重算（更多 combo／更接近條件）
