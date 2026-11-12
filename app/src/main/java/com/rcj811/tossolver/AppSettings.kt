@@ -43,6 +43,11 @@ class AppSettings(context: Context) {
         get() = sp.getInt("dirs", 8)
         set(v) = sp.edit().putInt("dirs", v).apply()
 
+    /** 工具列上方的訊息列：開／關（工具列 ⚙ 按鈕切換） */
+    var showStatus: Boolean
+        get() = sp.getBoolean("showStatus", true)
+        set(v) = sp.edit().putBoolean("showStatus", v).apply()
+
     /** 懸浮工作列位置（-1 = 預設：上方中央） */
     var barX: Int
         get() = sp.getInt("barX", -1)

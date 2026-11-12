@@ -137,7 +137,7 @@ class AutoTurnService : AccessibilityService() {
     private fun toast(msg: String) {
         val s = statusView
         if (s == null) { Toast.makeText(this, msg, if (msg.length > 24) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show(); return }
-        status(msg)
+        status(msg)   // 訊息列關掉時不顯示（只有重要警告會跳出系統小訊息）
     }
 
     private var statusView: TextView? = null
@@ -286,6 +286,8 @@ class AutoTurnService : AccessibilityService() {
         val add = barButton("＋", "#1565C0") { onPlusTap() }
         val cal = barButton("校", "#6A1B9A") { openCalibration() }
         val stg = barButton("關", "#546E7A") { openStagePanel() }
+        // ⚙ 設定：開／關上方的訊息列
+        val gear = barButton("⚙", "#00838F") { toggleStatus() }
         val close = barButton("✕", "#37474F") { onCloseTap() }
         b.addView(handle)
         b.addView(play)
@@ -293,13 +295,14 @@ class AutoTurnService : AccessibilityService() {
         b.addView(add)
         b.addView(cal)
         b.addView(stg)
+        b.addView(gear)
         b.addView(close)
         foldable.clear()
         foldable.addAll(listOf(once, add, cal, stg))
         val lp = overlayParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, true).apply {
-            // 預設：畫面上方中央（7 顆按鈕約 332dp 寬）；拖曳過就用上次的位置
+            // 預設：畫面上方中央（8 顆按鈕約 380dp 寬）；拖曳過就用上次的位置
             val dm = resources.displayMetrics
-            x = if (settings.barX >= 0) settings.barX else maxOf(0, (dm.widthPixels - dp(332)) / 2)
+            x = if (settings.barX >= 0) settings.barX else maxOf(0, (dm.widthPixels - dp(380)) / 2)
             y = if (settings.barY >= 0) settings.barY else (dm.heightPixels * 0.05f).toInt()
         }
         // 按鈕列照自己的寬度（不能跟著狀態列的寬度，否則字短時按鈕會被切掉）
@@ -312,7 +315,20 @@ class AutoTurnService : AccessibilityService() {
         onceBtn = once
         stageBtn = stg
         calBtn = cal
+        gearBtn = gear
+        st.visibility = if (settings.showStatus) View.VISIBLE else View.GONE
         updateBar()
+    }
+
+    private var gearBtn: TextView? = null
+
+    /** ⚙：開／關訊息列（記住設定）。關掉時重要警告仍會用系統小訊息顯示 */
+    private fun toggleStatus() {
+        val on = !settings.showStatus
+        settings.showStatus = on
+        statusView?.visibility = if (on) View.VISIBLE else View.GONE
+        setColor(gearBtn, if (on) "#00838F" else "#616161")
+        Toast.makeText(this, if (on) "訊息列：開" else "訊息列：關（重要警告仍會跳出提示）", Toast.LENGTH_SHORT).show()
     }
 
     private fun setColor(v: TextView?, color: String) {
@@ -338,6 +354,7 @@ class AutoTurnService : AccessibilityService() {
         setColor(onceBtn, if (busy && !running) "#F57C00" else "#C62828")
         setColor(stageBtn, if (activePreset >= 0 && !stage.isEmpty()) "#F9A825" else "#546E7A")
         for (v in foldable) v.visibility = if (collapsed) View.GONE else View.VISIBLE
+        setColor(gearBtn, if (settings.showStatus) "#00838F" else "#616161")
         calBtn?.let { c ->
             c.text = if (boardUnknown > 0) "校?" else "校"
             c.textSize = if (boardUnknown > 0) 15f else 17f
@@ -493,7 +510,8 @@ class AutoTurnService : AccessibilityService() {
     /** 真的過不了：停止並震動提醒使用者手動處理 */
     private fun alertManual(msg: String) {
         stopAuto(null)
-        if (statusView != null) status("⚠ " + msg) else Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        // 重要警告：訊息列開著就顯示在上面；關掉時用系統小訊息跳出來
+        if (statusView != null && settings.showStatus) status("⚠ " + msg) else Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         runCatching {
             @Suppress("DEPRECATION")
             val v = getSystemService(VIBRATOR_SERVICE) as Vibrator
