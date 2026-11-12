@@ -595,8 +595,10 @@ class AutoTurnService : AccessibilityService() {
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
             val unknown = rec.unknownCount()
-            // 問號盤（「關」有開）：先移一格讓顏色出現再規劃
-            if (unknown > OrbRecognizer.maxUnknown(geo.cells) && stage.revealMove) {
+            // 問號盤：整盤每格長得一樣（不管辨識認成什麼）一定先移一格看顏色；
+            // 「關」有開「問號盤」時，部分格子認不出來也先移一格
+            val hidden = looksHidden(frame, geo)
+            if (hidden || (unknown > OrbRecognizer.maxUnknown(geo.cells) && stage.revealMove)) {
                 revealTurn(geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "問號盤這回合沒轉完") }
                 return@captureClean
             }
@@ -650,7 +652,8 @@ class AutoTurnService : AccessibilityService() {
         strictTurn = false
         busy = false
         updateBar()
-        if (msg != null) toast(msg)
+        // 按「轉／完成」沒轉成的原因很重要：訊息列關著也用系統小訊息跳出來
+        if (msg != null) { if (settings.showStatus) toast(msg) else Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
     }
 
     // ---------------- 自動執行（全自動） ----------------
@@ -794,7 +797,9 @@ class AutoTurnService : AccessibilityService() {
         val lum = boardLum(frame, geo)
         val dimmed = lumRef > 0f && lum < lumRef * 0.7f
         if (dimmed) lastScreenChangeAt = now   // 動畫中：暫停秒數從頭算
-        val ready = !dimmed && unknown <= OrbRecognizer.maxUnknown(geo.cells)
+        // 問號盤：每格長得一樣（問號珠可能被認成某種珠或 X）→ 不當成一般盤面，走「先移一格」
+        val hiddenNow = !dimmed && looksHidden(frame, geo)
+        val ready = !dimmed && !hiddenNow && unknown <= OrbRecognizer.maxUnknown(geo.cells)
         if (dimmed) status("動畫中（盤面變暗），等待下一回合…", important = false)
         if (ready) { lastBoardAt = now; noteUnknown(unknown) }
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張
@@ -867,19 +872,13 @@ class AutoTurnService : AccessibilityService() {
             status(if (changing) "過場中（畫面在變化），等待下一場的盤面…" else "沒看到轉珠盤面（$unknown 格認不出來），等待中…", important = false)
         }
         // 問號盤：畫面靜止、盤面每格長得都一樣（被蓋成問號）連續兩次 → 這關「關」有開「問號盤」就先移一格看顏色
-        hiddenCount = if (!ready && !dimmed && !changing && looksHidden(frame, geo)) hiddenCount + 1 else 0
+        hiddenCount = if (hiddenNow && !changing) hiddenCount + 1 else 0
         if (hiddenCount >= 2 && now - lastActionAt > 1500) {
             hiddenCount = 0
             busy = true
             captureClean { clean ->
                 if (!running) { busy = false; updateBar(); return@captureClean }
                 applyStageFor(clean ?: frame, geo)
-                if (!stage.revealMove) {
-                    busy = false
-                    status("珠子被蓋成問號：到「關」打開「問號盤先移一格」，就會先移一格看顏色再轉", important = true)
-                    next(1500)
-                    return@captureClean
-                }
                 revealTurn(geo) { ok ->
                     if (ok) turnsDone++
                     lastActionAt = SystemClock.uptimeMillis()
