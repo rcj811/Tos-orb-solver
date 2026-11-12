@@ -32,6 +32,7 @@ struct Ctx {
     Config cfg;
     float boost[NCOND];   // 各條件的引導倍數（1 = 一般；沒湊到時加重再找）
     int act[NCOND], nAct = 0;   // 有設定的條件（每次 solve 開始時算一次，評分時只跑這些）
+    bool condFirst = false;     // 條件優先：做到條件後走最短的路，不追求最大 combo（首消必消）
     Ctx() { for (float& v : boost) v = 1.0f; }
 };
 thread_local Ctx X;
@@ -399,6 +400,7 @@ float condGuide(int k, const Info& in, const State& s, int deficit) {
 
 void initConds() {
     X.nAct = 0;
+    X.condFirst = X.ru.allMask != 0;
     for (int k = 0; k < NCOND; k++) { X.boost[k] = 1.0f; if (condActive(k)) X.act[X.nAct++] = k; }
 }
 
@@ -439,6 +441,8 @@ bool better(const State& a, const State& b) {
     // 兩個都沒完全符合：先比做到幾項條件，再比總共還差多少（例如 2 組十字做不到時至少 1 組；拼圖盾＋首消 8 combo 不能為了 combo 放棄拼圖盾）
     if (!a.ok && a.goals != b.goals) return a.goals > b.goals;
     if (!a.ok && a.deficit != b.deficit) return a.deficit < b.deficit;
+    // 條件優先（首消必消）：先把要消的珠排好，做到後走越少步越好，不追求最大 combo
+    if (a.ok && X.condFirst && a.len != b.len) return a.len < b.len;
     if (a.combos != b.combos) return a.combos > b.combos;
     if (X.cfg.prefer3) {
         // 同 combo：每組剛好 3 顆最好（多出來的珠越少越好），其次首消 combo 越多
@@ -554,6 +558,7 @@ bool beamSearch(const Board& init, State& bestOut) {
             }
         }
         std::swap(pool, next);
+        if (X.condFirst && best.ok) break;   // 條件優先：已經做到，最短的就是這一步，不用再往下找
     }
     bestOut = best;
     return true;
@@ -685,8 +690,29 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
         }
         X.cfg.beam = cfg.beam;
     }
-    // 2) 時間還夠：beam ×3 重算（更多 combo／更接近條件）
-    if (cfg.timeBudgetMs > 0) {
+    // 條件優先而且已經做到：時間內用更寬的搜尋找「更少步」的轉法（先排好要消的珠，剩下不用多轉）
+    if (X.condFirst && best.ok && cfg.timeBudgetMs > 0) {
+        const double capS = cfg.timeBudgetMs * 1.5;   // 縮短最多用到 1.5 倍時間
+        // 先試加寬（一般引導），再試加重條件引導
+        const int bms[] = {cfg.beam * 3, cfg.beam * 2};
+        const float bos[] = {1.0f, 3.0f};
+        for (int r = 0; r < 2; r++) {
+            const int bm = bms[r];
+            if (best.len <= 1 || elapsed() + perBeam * bm * 1.15 > capS) break;
+            X.cfg.maxPath = best.len - 1;
+            X.cfg.beam = bm;
+            for (int i = 0; i < X.nAct; i++) X.boost[X.act[i]] = bos[r];
+            State cand;
+            const bool got = beamSearch(b, cand);
+            for (int k = 0; k < NCOND; k++) X.boost[k] = 1.0f;
+            if (got) score(cand);
+            if (got && cand.ok && cand.len < best.len) best = cand;
+        }
+        X.cfg.maxPath = cfg.maxPath;
+        X.cfg.beam = cfg.beam;
+    }
+    // 2) 時間還夠：beam ×3 重算（更多 combo／更接近條件）；條件優先而且已經做到就不用再算
+    if (cfg.timeBudgetMs > 0 && !(X.condFirst && best.ok)) {
         int beam = cfg.beam;
         for (int round = 0; round < 4; round++) {
             if (beam * 3 > 20000 || !fits(beam * 3, 1)) break;
