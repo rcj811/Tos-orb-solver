@@ -426,7 +426,7 @@ class AutoTurnService : AccessibilityService() {
     private fun capture(pooled: Boolean = false, cb: (Frame?) -> Unit) {
         if (Build.VERSION.SDK_INT < 30) { cb(null); return }
         pathView?.clear()
-        main.postDelayed({ takeShot(cb, pooled) }, 60)   // 等路徑從畫面上消失
+        main.postDelayed({ takeShot(pooled, cb) }, 60)   // 等路徑從畫面上消失
     }
 
     @Volatile private var autoBuf: IntArray? = null
@@ -460,7 +460,7 @@ class AutoTurnService : AccessibilityService() {
     }
 
     /** 截圖；被系統拒絕（兩次截圖間隔太短等）時等 0.4 秒重試，最多 3 次 */
-    private fun takeShot(cb: (Frame?) -> Unit, pooled: Boolean = false) = takeShotTry(cb, 0, pooled)
+    private fun takeShot(pooled: Boolean = false, cb: (Frame?) -> Unit) = takeShotTry(cb, 0, pooled)
 
     private fun takeShotTry(cb: (Frame?) -> Unit, attempt: Int, pooled: Boolean) {
         takeShotOnce(pooled) { f ->
