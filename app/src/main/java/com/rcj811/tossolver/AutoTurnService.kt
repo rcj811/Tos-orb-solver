@@ -243,6 +243,15 @@ class AutoTurnService : AccessibilityService() {
                 TestHooks.log(if (v != null) "點「${TestHooks.label(v)}」" else "找不到「$label」")
                 v?.performClick()
             }
+            // 匯出 → 匯入 → 再匯出，兩次內容要一樣（資料不會在備份還原時走樣）
+            "backup" -> {
+                val a = DataBackup.export(this)
+                val v = DataBackup.importText(this, a)
+                reloadModel()
+                val b = DataBackup.export(this)
+                val strip = { t: String -> org.json.JSONObject(t).getJSONObject("stores").toString() }
+                TestHooks.log("備份測試 ${if (strip(a) == strip(b)) "一致" else "不一致！"}（${a.length} 字，$v）")
+            }
             "state" -> TestHooks.log("狀態 running=$running busy=$busy calib=${calibRoot != null} stage=${stageRoot != null} bar=${bar != null} stage=${stage.summary()}")
         }
     }

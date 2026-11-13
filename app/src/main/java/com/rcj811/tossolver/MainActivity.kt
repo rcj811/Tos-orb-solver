@@ -25,6 +25,11 @@ import java.util.Random
  * 下半部：手動模式（自己排盤面 → 求解 → 看路徑）
  */
 class MainActivity : Activity() {
+    companion object {
+        private const val REQ_EXPORT = 41
+        private const val REQ_IMPORT = 42
+    }
+
 
     private lateinit var settings: AppSettings
     private lateinit var colorStore: ColorStore
@@ -115,6 +120,29 @@ class MainActivity : Activity() {
 
         rulesText = note("")
         root.addView(rulesText)
+        // 匯出／匯入：移除程式前先匯出，重裝後匯入，學過的資料就不會不見
+        root.addView(row(
+            button("匯出資料（備份）") {
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/json"
+                    putExtra(Intent.EXTRA_TITLE, DataBackup.suggestedName())
+                }, REQ_EXPORT)
+            },
+            button("匯入資料（還原）") {
+                AlertDialog.Builder(this)
+                    .setTitle("匯入資料")
+                    .setMessage("會用備份檔的資料「取代」目前所有學過的資料（顏色、符石類別、記住的關卡、校正位置、設定）。確定要匯入嗎？")
+                    .setPositiveButton("選擇備份檔") { _, _ ->
+                        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                        }, REQ_IMPORT)
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            },
+        ))
         root.addView(button("管理學習資料（一筆一筆刪除設定錯的）") {
             OrbTypeDialog.showLearningData(this) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
         })
@@ -205,6 +233,31 @@ class MainActivity : Activity() {
         refreshAuto()
         showCrashLogIfAny()
         main.postDelayed({ askPermissionsIfNeeded() }, 350)
+    }
+
+    @Deprecated("Activity 的舊版 API，這裡只用來接檔案選擇結果")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) return
+        when (requestCode) {
+            REQ_EXPORT -> runCatching { DataBackup.exportTo(this, uri) }
+                .onSuccess { Toast.makeText(this, "已匯出全部資料。移除程式前請確認這個檔案還在", Toast.LENGTH_LONG).show() }
+                .onFailure { Toast.makeText(this, "匯出失敗：${it.message}", Toast.LENGTH_LONG).show() }
+            REQ_IMPORT -> runCatching { DataBackup.importFrom(this, uri) }
+                .onSuccess { v ->
+                    // 重新載入：App 與自轉珠服務都改用還原的資料
+                    settings = AppSettings(this)
+                    colorStore = ColorStore(this)
+                    OrbTypeStore(this).apply()
+                    AutoTurnService.instance?.reloadModel()
+                    refreshAuto()
+                    AlertDialog.Builder(this).setTitle("匯入完成")
+                        .setMessage("已還原備份 $v 的全部資料。\n盤面校正位置也一起還原了；如果這支手機的螢幕大小不同，請按「校」重新對齊。")
+                        .setPositiveButton("好", null).show()
+                }
+                .onFailure { Toast.makeText(this, "匯入失敗：${it.message}", Toast.LENGTH_LONG).show() }
+        }
     }
 
     /** 上次程式出錯：顯示原因，可以一鍵複製給開發者 */

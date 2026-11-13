@@ -102,6 +102,11 @@ say "7. ⚙ 訊息列開關"
 cmd gear; sleep 1; cmd gear; sleep 1
 alive ⚙
 
+say "7b. 匯出／匯入資料"
+cmd backup; sleep 3
+grep "備份測試" "$OUT/logcat.txt" | tail -1
+alive 備份
+
 say "8. 長時間自動轉珠（3 分鐘）"
 show normal1; cmd state
 cmd play
@@ -134,6 +139,7 @@ fi
 
 say "結果"
 grep -n "TOSTEST" "$OUT/logcat.txt" | tail -5
+if grep -q "備份測試 不一致" "$OUT/logcat.txt"; then echo "!!! 匯出匯入資料不一致"; exit 1; fi
 FATAL=$(grep -nE "FATAL EXCEPTION|Fatal signal|ANR in $PKG|$PKG.*has died|Process: $PKG" "$OUT/logcat.txt" | head -40)
 if [ -n "$FATAL" ]; then
   echo "!!! 發現崩潰："
