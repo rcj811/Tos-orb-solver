@@ -382,29 +382,57 @@ object StageConds {
     }
 
     private object Shape : Cond("形狀盾") {
-        override fun precise(r: StageRules) = isSet(r)
         // 無 → 十字≥1、≥2、≥3 → T 形≥1… → L 形≥1…
         val choices = listOf(0 to 0) + (1..3).flatMap { t -> (1..3).map { t to it } }
+        val colorNames = listOf("任意") + ORB.toList()
+        fun colorText(r: StageRules) = if (r.shapeColor in 0..5) "（${ORB[r.shapeColor]}）" else ""
+        override fun precise(r: StageRules) = isSet(r)
         override fun isSet(r: StageRules) = r.shapeMin > 0
-        override fun clear(r: StageRules) { r.shapeType = 0; r.shapeMin = 0 }
-        override fun copy(dst: StageRules, src: StageRules) { dst.shapeType = src.shapeType; dst.shapeMin = src.shapeMin }
-        override fun summary(r: StageRules) = if (isSet(r)) listOf("${StageRules.SHAPE_NAMES[r.shapeType]}限盾 ≥${r.shapeMin} 組") else emptyList()
-        override fun save(r: StageRules) = listOf("sh=${r.shapeType}", "sm=${r.shapeMin}")
+        override fun clear(r: StageRules) { r.shapeType = 0; r.shapeMin = 0; r.shapeColor = -1 }
+        override fun copy(dst: StageRules, src: StageRules) { dst.shapeType = src.shapeType; dst.shapeMin = src.shapeMin; dst.shapeColor = src.shapeColor }
+        override fun summary(r: StageRules) =
+            if (isSet(r)) listOf("${StageRules.SHAPE_NAMES[r.shapeType]}限盾${colorText(r)} ≥${r.shapeMin} 組") else emptyList()
+        override fun save(r: StageRules) = listOf("sh=${r.shapeType}", "sm=${r.shapeMin}", "sc=${r.shapeColor}")
         override fun load(r: StageRules, k: String, v: String): Boolean = when (k) {
             "sh" -> { r.shapeType = (v.toIntOrNull() ?: 0).coerceIn(0, 3); true }
             "sm" -> { r.shapeMin = v.toIntOrNull() ?: 0; true }
+            "sc" -> { r.shapeColor = (v.toIntOrNull() ?: -1).coerceIn(-1, 5); true }
             else -> false
         }
+        override fun conflicts(r: StageRules): List<String> =
+            if (isSet(r) && r.shapeColor in 0..5 && (r.antiMask shr r.shapeColor and 1) == 1)
+                listOf("形狀盾要用${ORB[r.shapeColor]}完成，但首消禁 ${maskText(r.antiMask)}，兩個條件矛盾")
+            else emptyList()
         override fun impossible(r: StageRules, b: BoardCount): String? {
             if (r.shapeMin <= 0) return null
+            val name = StageRules.SHAPE_NAMES[r.shapeType]
+            if (r.shapeColor in 0..5) {
+                val n = b.all[r.shapeColor]
+                return if (n / 5 < r.shapeMin) "${name}限盾要用${ORB[r.shapeColor]}排 ${r.shapeMin} 組（每組 5 粒），這盤${ORB[r.shapeColor]}只有 $n 顆" else null
+            }
             val most = b.all.sumOf { it / 5 }
-            return if (most < r.shapeMin) "${StageRules.SHAPE_NAMES[r.shapeType]}限盾要 ${r.shapeMin} 組（每組 5 粒同色），這盤最多只能湊 $most 組" else null
+            return if (most < r.shapeMin) "${name}限盾要 ${r.shapeMin} 組（每組 5 粒同色），這盤最多只能湊 $most 組" else null
         }
-        override val controls: List<Ctl> = listOf(Ctl.Choice("shape",
-            { r -> if (r.shapeMin == 0) "形狀盾：無" else "${StageRules.SHAPE_NAMES[r.shapeType]}限盾 ≥${r.shapeMin} 組" },
-            choices.map { (t, m) -> if (m == 0) "無" else "${StageRules.SHAPE_NAMES[t]}≥$m" },
-            { r -> choices.indexOf(r.shapeType to r.shapeMin) },
-            { r, k -> val (t, m) = choices[k]; r.shapeType = t; r.shapeMin = m; null }))
+        override val controls: List<Ctl> = listOf(
+            Ctl.Choice("shape",
+                { r -> if (r.shapeMin == 0) "形狀盾：無" else "${StageRules.SHAPE_NAMES[r.shapeType]}限盾 ≥${r.shapeMin} 組" },
+                choices.map { (t, m) -> if (m == 0) "無" else "${StageRules.SHAPE_NAMES[t]}≥$m" },
+                { r -> choices.indexOf(r.shapeType to r.shapeMin) },
+                { r, k -> val (t, m) = choices[k]; r.shapeType = t; r.shapeMin = m; if (m == 0) r.shapeColor = -1; null }),
+            // 形狀盾指定顏色：例如十字要用火、T 形要用光完成
+            Ctl.Choice("shapeColor",
+                { r -> "形狀顏色：" + colorNames[r.shapeColor + 1] },
+                colorNames,
+                { r -> r.shapeColor + 1 },
+                { r, k ->
+                    r.shapeColor = k - 1
+                    when {
+                        k > 0 && r.shapeMin == 0 -> "還沒設定形狀盾：先點「形狀盾」選十字／T／L"
+                        k > 0 && (r.antiMask shr (k - 1) and 1) == 1 -> { r.antiMask = r.antiMask and (1 shl (k - 1)).inv(); "已把${ORB[k - 1]}從「首消不能消」拿掉（形狀盾要用它）" }
+                        else -> null
+                    }
+                }),
+        )
     }
 
     /** 同色組數盾：選 2～5 色，第一批每色各剛好 K 組、每組剛好 3 顆 */

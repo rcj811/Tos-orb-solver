@@ -36,7 +36,7 @@ class StagePanelModelTest {
         // 版面跟之前一樣：筆刷 4、3、3
         assertEquals(listOf(4, 3, 3), m.brushRows().map { it.size })
         assertEquals(listOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)"), m.brushRows()[0].map { it.name })
-        assertEquals(listOf("combo", "first", "three", "attr", "num", "shape", "sticky", "fire", "groupK", "reveal"), m.buttons.map { it.id })
+        assertEquals(listOf("combo", "first", "three", "attr", "num", "shape", "shapeColor", "sticky", "fire", "groupK", "reveal"), m.buttons.map { it.id })
         assertEquals(listOf("allMask", "antiMask", "groupMask"), m.masks.map { it.id })
     }
 
@@ -250,6 +250,31 @@ class StagePanelModelTest {
         assertFalse(m.status(), m.hasConflicts())
         val sum = m.edit.summary()
         for (t in listOf("問號盤", "起點", "終點", "首消禁 光暗")) assertTrue(sum, sum.contains(t))
+    }
+
+    @Test
+    fun coloredShapeShield() {
+        // 十字限盾要用火：形狀盾選十字≥1、形狀顏色選火＝4 下
+        val m = model()
+        m.set("shape", "十字≥1")
+        m.set("shapeColor", "火")
+        assertEquals(4, m.taps)
+        assertEquals(FIRE, m.edit.shapeColor)
+        assertTrue(m.edit.summary(), m.edit.summary().contains("十字限盾（火）"))
+        val v = m.edit.toInts()
+        assertEquals(1, v[112]); assertEquals(1, v[113]); assertEquals(FIRE + 1, v[116])
+        assertEquals(FIRE, StageRules().apply { deserialize(m.edit.serialize()) }.shapeColor)
+        // 火只有 4 顆 → 做不到；首消禁火 → 衝突
+        val colors = IntArray(30) { if (it < 4) FIRE else WATER }
+        assertTrue(m.edit.firstBatchImpossible(colors) != null)
+        m.tapMask(m.mask("antiMask"), FIRE)
+        assertTrue(m.hasConflicts())
+        // 先選顏色、還沒選形狀：提示
+        val m2 = model(); m2.set("shapeColor", "光")
+        assertTrue(m2.status().contains("先點「形狀盾」"))
+        // 形狀盾選回「無」：顏色一起清掉
+        m.set("shape", "無")
+        assertEquals(-1, m.edit.shapeColor)
     }
 
     @Test

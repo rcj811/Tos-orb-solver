@@ -56,7 +56,7 @@ class SkillParserTest {
         assertEquals(1, SkillGuide.explain(r.skills).count { it.second.meaning.contains("十") })
         val t = SkillParser.parse("【T形限盾 (≥1 組)】").rules
         assertEquals(2, t.shapeType); assertEquals(1, t.shapeMin)
-        assertEquals(116, StageRules().apply { shapeType = 1; shapeMin = 2 }.toInts().size)
+        assertEquals(120, StageRules().apply { shapeType = 1; shapeMin = 2 }.toInts().size)
         assertEquals(1, StageRules().apply { shapeType = 1; shapeMin = 2 }.toInts()[112])
         assertEquals(2, StageRules().apply { shapeType = 1; shapeMin = 2 }.toInts()[113])
     }
@@ -128,5 +128,13 @@ class SkillParserTest {
     fun nothingFoundWithoutBrackets() {
         val r = SkillParser.parse("戰鬥中 HP 12345")
         assertFalse(r.found)
+    }
+
+    @Test
+    fun coloredShapeShieldFromSkillText() {
+        val r = SkillParser.parse("【十字限盾 (≥2 組)】 以火符石【十】形首批消除 ≥2 組 5 粒符石")
+        assertEquals(1, r.rules.shapeType)
+        assertEquals(2, r.rules.shapeMin)
+        assertEquals(0, r.rules.shapeColor)
     }
 }

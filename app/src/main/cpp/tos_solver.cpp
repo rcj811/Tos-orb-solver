@@ -175,7 +175,8 @@ Info resolve(Board b) {
                     }
                     const int k = col(b.c[i]);
                     if (k < 6) { in.grp[k]++; if (n == 3) in.grp3[k]++; }
-                    if (RU.shapeType && n == 5 && isShape(xs, ys, RU.shapeType)) in.shapes++;
+                    // 形狀盾：剛好 5 粒排成指定形狀；有指定顏色時只算那一色
+                    if (RU.shapeType && n == 5 && (RU.shapeColor < 0 || k == RU.shapeColor) && isShape(xs, ys, RU.shapeType)) in.shapes++;
                 }
             }
             // 首消必消（全部消光）：這些顏色的珠要在第一批就全部消掉，沒被消的都算剩下（疊珠不算）
@@ -337,6 +338,7 @@ float crossHint(const Board& b) {
         const int x = i % C, y = i / C;
         if (x == 0 || x == C - 1 || y == 0 || y == R - 1 || b.c[i] == EMPTY) continue;
         const int c0 = col(b.c[i]);
+        if (RU.shapeColor >= 0 && c0 != RU.shapeColor) continue;   // 指定顏色：只引導那一色
         int m = 1;
         for (int d = 0; d < 4; d++) {
             const int q = (y + DY[d]) * C + x + DX[d];
@@ -607,7 +609,8 @@ bool rulesFromInts(const int* v, int n, Rules& out) {
     if (n >= RULES_INTS_V1 + 4) out.firstOrbsExact = std::max(0, v[RULES_INTS_V1 + 1]);
     if (n >= RULES_INTS_V1 + 4) out.first3Only = v[RULES_INTS_V1 + 2] != 0;
     if (n >= RULES_INTS_V1 + 4) out.allMask = v[RULES_INTS_V1 + 3] & 0x3F;
-    if (n >= RULES_INTS) {
+    if (n >= RULES_INTS_V1 + 12) out.shapeColor = std::clamp(v[RULES_INTS_V1 + 8], 0, 6) - 1;
+    if (n >= RULES_INTS_V1 + 8) {
         out.shapeType = std::clamp(v[RULES_INTS_V1 + 4], 0, 3);
         out.shapeMin = std::max(0, v[RULES_INTS_V1 + 5]);
         out.groupMask = v[RULES_INTS_V1 + 6] & 0x3F;

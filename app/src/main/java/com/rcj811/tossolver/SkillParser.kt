@@ -116,7 +116,9 @@ object SkillParser {
             if (!hit) Regex("(十字|十|T字?|L字?)形?限盾[^0-9]{0,3}(\\d)?").find(s)?.let {
                 r.shapeType = when (it.groupValues[1].first()) { 'T' -> 2; 'L' -> 3; else -> 1 }
                 r.shapeMin = it.groupValues[2].toIntOrNull() ?: 1
-                ok("${StageRules.SHAPE_NAMES[r.shapeType]}限盾≥${r.shapeMin}組")
+                // 技能文字有指定顏色（例如「以火符石十字形消除」）就一起設定
+                Regex("([水火木光暗心])(?:屬性)?符石.{0,12}?[十TL]").find(norm)?.let { m -> r.shapeColor = "火水木光暗心".indexOf(m.groupValues[1][0]) }
+                ok("${StageRules.SHAPE_NAMES[r.shapeType]}限盾" + (if (r.shapeColor >= 0) "（${"火水木光暗心"[r.shapeColor]}）" else "") + "≥${r.shapeMin}組")
             }
             if (!hit) Regex("首消≥?(\\d{1,2})組?屬性符石盾").find(s)?.let {
                 r.firstAttrMin = it.groupValues[1].toInt(); ok("首消≥${r.firstAttrMin}組屬性符石（心不算）")

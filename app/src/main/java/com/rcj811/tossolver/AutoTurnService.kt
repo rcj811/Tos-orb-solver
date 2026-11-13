@@ -347,7 +347,13 @@ class AutoTurnService : AccessibilityService() {
         updateBar()
     }
 
+    private var barState = ""
+
     private fun updateBar(onceLabel: String? = null) {
+        // 每 0.6 秒會被呼叫：狀態沒變就不動按鈕（避免一直重新排版造成卡頓）
+        val key = "$running|$onceLabel|$busy|$activePreset|${stage.isEmpty()}|$collapsed|${settings.showStatus}|$boardUnknown"
+        if (key == barState) return
+        barState = key
         playBtn?.text = if (running) "■" else "▶"
         setColor(playBtn, if (running) "#D32F2F" else "#2E7D32")
         onceBtn?.text = onceLabel ?: "轉"
@@ -356,8 +362,8 @@ class AutoTurnService : AccessibilityService() {
         for (v in foldable) v.visibility = if (collapsed) View.GONE else View.VISIBLE
         setColor(gearBtn, if (settings.showStatus) "#00838F" else "#616161")
         calBtn?.let { c ->
-            c.text = if (boardUnknown > 0) "校?" else "校"
-            c.textSize = if (boardUnknown > 0) 15f else 17f
+            val t = if (boardUnknown > 0) "校?" else "校"
+            if (c.text.toString() != t) { c.text = t; c.textSize = if (boardUnknown > 0) 15f else 17f }
             setColor(c, if (boardUnknown > 0) "#FF6F00" else "#6A1B9A")
             // 工具列收起時，有問號也要露出「校?」
             if (boardUnknown > 0) c.visibility = View.VISIBLE
@@ -416,11 +422,14 @@ class AutoTurnService : AccessibilityService() {
 
     // ---------------- 截圖 ----------------
 
-    private fun capture(cb: (Frame?) -> Unit) {
+    /** pooled＝重複使用同一塊像素記憶體（只給自動轉珠迴圈用：它一次只處理一張，不會留著舊截圖），減少記憶體回收造成的卡頓 */
+    private fun capture(pooled: Boolean = false, cb: (Frame?) -> Unit) {
         if (Build.VERSION.SDK_INT < 30) { cb(null); return }
         pathView?.clear()
-        main.postDelayed({ takeShot(cb) }, 60)   // 等路徑從畫面上消失
+        main.postDelayed({ takeShot(cb, pooled) }, 60)   // 等路徑從畫面上消失
     }
+
+    @Volatile private var autoBuf: IntArray? = null
 
     /** 暫時隱藏工作列再截圖（判斷關卡、錄製規則、校正用；每回合最多一次，避免閃爍） */
     /**
@@ -451,17 +460,17 @@ class AutoTurnService : AccessibilityService() {
     }
 
     /** 截圖；被系統拒絕（兩次截圖間隔太短等）時等 0.4 秒重試，最多 3 次 */
-    private fun takeShot(cb: (Frame?) -> Unit) = takeShotTry(cb, 0)
+    private fun takeShot(cb: (Frame?) -> Unit, pooled: Boolean = false) = takeShotTry(cb, 0, pooled)
 
-    private fun takeShotTry(cb: (Frame?) -> Unit, attempt: Int) {
-        takeShotOnce { f ->
+    private fun takeShotTry(cb: (Frame?) -> Unit, attempt: Int, pooled: Boolean) {
+        takeShotOnce(pooled) { f ->
             if (f != null || attempt >= 3) cb(f)
-            else main.postDelayed({ takeShotTry(cb, attempt + 1) }, 400)
+            else main.postDelayed({ takeShotTry(cb, attempt + 1, pooled) }, 400)
         }
     }
 
     @TargetApi(30)
-    private fun takeShotOnce(cb: (Frame?) -> Unit) {
+    private fun takeShotOnce(pooled: Boolean, cb: (Frame?) -> Unit) {
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, shotExec, object : AccessibilityService.TakeScreenshotCallback {
                 override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
@@ -473,7 +482,8 @@ class AutoTurnService : AccessibilityService() {
                         hw?.recycle()
                         hb.close()
                         if (sw != null) {
-                            val px = IntArray(sw.width * sw.height)
+                            val n = sw.width * sw.height
+                            val px = if (pooled) autoBuf?.takeIf { it.size == n } ?: IntArray(n).also { autoBuf = it } else IntArray(n)
                             sw.getPixels(px, 0, sw.width, 0, 0, sw.width, sw.height)
                             frame = Frame(sw.width, sw.height, px)
                             sw.recycle()
@@ -772,7 +782,7 @@ class AutoTurnService : AccessibilityService() {
             if (!running) return
             if (busy) { main.postDelayed(this, 400); return }
             busy = true
-            capture { frame ->
+            capture(pooled = true) { frame ->
                 if (frame == null) { onAutoFrame(null, null); return@capture }
                 // 辨識、亮度、過場、問號盤判斷都在背景算，算完才回主執行緒做決定
                 val geo = settings.geometry
@@ -1173,13 +1183,22 @@ class AutoTurnService : AccessibilityService() {
             captureClean { frame ->
                 if (frame == null) { waitBoardThenTurn(rules, since, null); return@captureClean }
                 val geo = settings.geometry
-                val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
-                val board = OrbRecognizer.maskedBoard(rec)
-                val ready = rec.unknownCount() <= OrbRecognizer.maxUnknown(geo.cells)
-                if (ready) noteUnknown(rec.unknownCount())
-                // 間隔 0.5 秒再截下一張（太快會被系統拒絕截圖）
-                if (ready && last != null && OrbRecognizer.sameMasked(board, last)) main.postDelayed({ onOnceTap(rules) }, 500)
-                else waitBoardThenTurn(rules, since, if (ready) board else null)
+                // 辨識在背景做，主執行緒不卡
+                runCatching {
+                    shotExec.execute {
+                        val rec = runCatching { OrbRecognizer.recognize(frame, geo, model, stateModel) }.getOrNull()
+                        val hidden = rec != null && looksHidden(frame, geo)
+                        main.post {
+                            if (rec == null) { waitBoardThenTurn(rules, since, null); return@post }
+                            val board = OrbRecognizer.maskedBoard(rec)
+                            val ready = rec.unknownCount() <= OrbRecognizer.maxUnknown(geo.cells)
+                            if (ready) noteUnknown(rec.unknownCount())
+                            // 間隔 0.5 秒再截下一張（太快會被系統拒絕截圖）；問號盤也直接去轉（先移一格看顏色）
+                            if (hidden || (ready && last != null && OrbRecognizer.sameMasked(board, last))) main.postDelayed({ onOnceTap(rules) }, 500)
+                            else waitBoardThenTurn(rules, since, if (ready) board else null)
+                        }
+                    }
+                }
             }
         }, 700)
     }
@@ -1531,18 +1550,33 @@ class AutoTurnService : AccessibilityService() {
         return BoardGeometry(0f, frame.height - frame.height * 0.04f - cell * rows, cell, rows)
     }
 
+    // 校正畫面的辨識在背景執行緒做（點珠子、拖格線不卡）；只套用最新一次的結果
+    private var calibSeq = 0
+    private var calibBase: Recognition? = null   // 沒改任何珠子時的辨識結果（格線不變就不用重算）
+
     private fun recognizeInCalibration() {
         val v = calibView ?: return
         val f = calibFrame ?: return
-        val rec = OrbRecognizer.recognize(f, v.geo, model, stateModel)
-        v.resetLabels()
-        for (i in 0 until v.geo.cells) {
-            v.labels[i] = rec.colors[i]
-            v.conf[i] = rec.confidence[i]
-            v.states[i] = rec.states[i]
+        val geo = v.geo
+        val seq = ++calibSeq
+        calibBase = null
+        runCatching {
+            shotExec.execute {
+                val rec = runCatching { OrbRecognizer.recognize(f, geo, model, stateModel) }.getOrNull() ?: return@execute
+                main.post {
+                    if (seq != calibSeq || calibView !== v || v.geo != geo) return@post
+                    calibBase = rec
+                    v.resetLabels()
+                    for (i in 0 until geo.cells) {
+                        v.labels[i] = rec.colors[i]
+                        v.conf[i] = rec.confidence[i]
+                        v.states[i] = rec.states[i]
+                    }
+                    v.invalidate()
+                    updateCalibInfo()
+                }
+            }
         }
-        v.invalidate()
-        updateCalibInfo()
     }
 
     /**
@@ -1552,19 +1586,34 @@ class AutoTurnService : AccessibilityService() {
     private fun relabelFromEdits() {
         val v = calibView ?: return
         val f = calibFrame ?: return
-        val base = OrbRecognizer.recognize(f, v.geo, model, stateModel)
-        val work = model.copy()
-        val extra = ArrayList<Pair<Int, FloatArray>>()
-        for (i in 0 until v.geo.cells) if (v.edited[i] && v.labels[i] in 0..5 && v.states[i] == OrbState.NORMAL) {
-            if (base.shapes != null) extra.add(v.labels[i] to base.shapes[i])   // 黑白盤面：用形狀當範例
-            else work.addProto(base.features[i], v.labels[i])
+        val geo = v.geo
+        val seq = ++calibSeq
+        // 點擊當下的標記先拷貝一份給背景用（使用者可能一直點）
+        val labels = v.labels.copyOf(); val edited = v.edited.copyOf(); val states = v.states.copyOf()
+        val cachedBase = calibBase
+        runCatching {
+            shotExec.execute {
+                val rec = runCatching {
+                    val base = cachedBase ?: OrbRecognizer.recognize(f, geo, model, stateModel)
+                    val work = model.copy()
+                    val extra = ArrayList<Pair<Int, FloatArray>>()
+                    for (i in 0 until geo.cells) if (edited[i] && labels[i] in 0..5 && states[i] == OrbState.NORMAL) {
+                        if (base.shapes != null) extra.add(labels[i] to base.shapes[i])   // 黑白盤面：用形狀當範例
+                        else work.addProto(base.features[i], labels[i])
+                    }
+                    OrbRecognizer.recognize(f, geo, work, stateModel, extra)
+                }.getOrNull() ?: return@execute
+                main.post {
+                    if (seq != calibSeq || calibView !== v || v.geo != geo) return@post
+                    for (i in 0 until geo.cells) {
+                        if (!v.edited[i]) { v.labels[i] = rec.colors[i]; v.conf[i] = rec.confidence[i] }
+                        if (!v.stateEdited[i]) v.states[i] = rec.states[i]
+                    }
+                    v.invalidate()
+                    updateCalibInfo()
+                }
+            }
         }
-        val rec = OrbRecognizer.recognize(f, v.geo, work, stateModel, extra)
-        for (i in 0 until v.geo.cells) {
-            if (!v.edited[i]) { v.labels[i] = rec.colors[i]; v.conf[i] = rec.confidence[i] }
-            if (!v.stateEdited[i]) v.states[i] = rec.states[i]
-        }
-        v.invalidate()
     }
 
     private fun updateCalibInfo() {

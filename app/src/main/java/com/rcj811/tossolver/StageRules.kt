@@ -10,7 +10,7 @@ class StageRules {
     companion object {
         const val MAX_CELLS = 48
         const val INTS_V1 = 12 + MAX_CELLS * 2
-        const val INTS = INTS_V1 + 8
+        const val INTS = INTS_V1 + 12
         val SHAPE_NAMES = arrayOf("", "十字", "T 形", "L 形")
 
         const val SHIELD = 1        // 拼圖盾格
@@ -37,6 +37,7 @@ class StageRules {
     var elemMask = 0       // 多屬性盾：本回合這些珠種每種至少消一組（讀技能卡設定）
     var shapeType = 0      // 形狀盾：0 無、1 十字、2 T 形、3 L 形（首批以這個形狀消除 5 粒同色）
     var shapeMin = 0       // 形狀盾：至少幾組
+    var shapeColor = -1    // 形狀盾：指定用哪一色完成（-1 = 任意顏色）
     var allMask = 0        // 首消必消（全部消光，第一批就要消掉）：這些珠種盤面上的珠全部要消掉（3 的倍數每組 3 顆，不是就用 4、5 顆一組）
     var groupMask = 0      // 同色組數盾：這些珠種（2～5 種）在第一批各消剛好 groupK 組、每組剛好 3 顆；其他珠種不限
     var groupK = 1
@@ -96,6 +97,7 @@ class StageRules {
         v[INTS_V1 + 3] = allMask
         v[INTS_V1 + 4] = if (shapeMin > 0) shapeType else 0
         v[INTS_V1 + 5] = shapeMin
+        v[INTS_V1 + 8] = if (shapeMin > 0) shapeColor + 1 else 0   // 形狀盾顏色（0 = 任意）
         v[INTS_V1 + 6] = if (groupActive()) groupMask else 0
         v[INTS_V1 + 7] = if (groupActive()) groupK else 0
         return v
