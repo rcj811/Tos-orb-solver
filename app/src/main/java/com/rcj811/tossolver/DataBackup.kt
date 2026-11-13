@@ -129,7 +129,7 @@ object DataBackup {
                 }
             }
         }
-        typesSp.edit().putString("types", curTypes.toString()).putInt("nextId", nextId).commit()
+        if (typesAdded > 0) typesSp.edit().putString("types", curTypes.toString()).putInt("nextId", nextId).commit()
         report.add("自訂符石類別：新增 $typesAdded 個")
 
         // 2) 顏色樣本、符石樣子
@@ -137,7 +137,7 @@ object DataBackup {
         val ce = colorsSp.edit()
         val protos = JSONArray(colorsSp.getString("protos", "[]"))
         val (pa, pd) = storeString(stores, "colors", "protos")?.let { unionArray(protos, JSONArray(it), { o -> "${o.optInt("c")}|${o.optString("f")}" }) } ?: (0 to 0)
-        ce.putString("protos", protos.toString())
+        if (pa > 0) ce.putString("protos", protos.toString())
         val states = JSONArray(colorsSp.getString("states", "[]"))
         val (sa, sd) = storeString(stores, "colors", "states")?.let {
             unionArray(states, JSONArray(it), { o -> "${o.optInt("s")}|${o.optString("d")}" }) { o ->
@@ -145,19 +145,21 @@ object DataBackup {
                 if (sId >= OrbTypes.FIRST_CUSTOM_ID) JSONObject(o.toString()).put("s", idMap[sId] ?: sId) else o
             }
         } ?: (0 to 0)
-        ce.putString("states", states.toString())
+        if (sa > 0) ce.putString("states", states.toString())
         // 顏色中心：目前還沒學過才用備份的
         val bc = stores.optJSONObject("colors")
-        if (!colorsSp.getBoolean("saved", false) && bc != null) {
+        val fresh = !colorsSp.getBoolean("saved", false)
+        if (fresh && bc != null) {
             for (k in bc.keys()) {
                 val e = bc.getJSONObject(k)
                 if (e.optString("t") == "f") ce.putFloat(k, e.getDouble("v").toFloat())
             }
         }
-        if (pa > 0 || sa > 0 || bc?.has("saved") == true) ce.putBoolean("saved", true)
+        if (fresh && (pa > 0 || sa > 0 || bc?.has("saved") == true)) ce.putBoolean("saved", true)
         val bakLearned = bc?.optJSONObject("learned")?.optInt("v") ?: 0
         val curLearned = colorsSp.getInt("learned", 0)
-        ce.putInt("learned", if (curLearned == 0) bakLearned else curLearned + pa)
+        if (curLearned == 0 && bakLearned > 0) ce.putInt("learned", bakLearned)
+        else if (pa > 0) ce.putInt("learned", curLearned + pa)
         ce.commit()
         report.add("學過的顏色樣本：新增 $pa 筆（重複 $pd 筆跳過）")
         report.add("符石樣子：新增 $sa 筆（重複 $sd 筆跳過）")
@@ -166,7 +168,7 @@ object DataBackup {
         val shapesSp = ctx.getSharedPreferences("shapes", Context.MODE_PRIVATE)
         val shapes = JSONArray(shapesSp.getString("list", "[]"))
         val (ha, hd) = storeString(stores, "shapes", "list")?.let { unionArray(shapes, JSONArray(it), { o -> "${o.optInt("c")}|${o.optString("d")}" }) } ?: (0 to 0)
-        shapesSp.edit().putString("list", shapes.toString()).commit()
+        if (ha > 0) shapesSp.edit().putString("list", shapes.toString()).commit()
         if (ha + hd > 0) report.add("黑白盤面形狀：新增 $ha 筆（重複 $hd 筆跳過）")
 
         // 4) 記住的關卡：用敵人畫面比對
