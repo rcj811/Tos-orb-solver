@@ -251,6 +251,14 @@ class AutoTurnService : AccessibilityService() {
                 val b = DataBackup.export(this)
                 val strip = { t: String -> org.json.JSONObject(t).getJSONObject("stores").toString() }
                 TestHooks.log("備份測試 ${if (strip(a) == strip(b)) "一致" else "不一致！"}（${a.length} 字，$v）")
+                // 再合併同一份備份兩次：第二次全部都是重複，資料不能變
+                val t0 = android.os.SystemClock.uptimeMillis()
+                val r1 = DataBackup.smartImport(this, a)
+                val r2 = DataBackup.smartImport(this, a)
+                reloadModel()
+                val c = DataBackup.export(this)
+                val ms = android.os.SystemClock.uptimeMillis() - t0
+                TestHooks.log("備份測試 合併${if (strip(a) == strip(c) && !r2.contains("新增 [1-9]".toRegex())) "一致" else "不一致！"}（${ms}ms）$r1 | $r2".replace('\n', ' '))
             }
             "state" -> TestHooks.log("狀態 running=$running busy=$busy calib=${calibRoot != null} stage=${stageRoot != null} bar=${bar != null} stage=${stage.summary()}")
         }

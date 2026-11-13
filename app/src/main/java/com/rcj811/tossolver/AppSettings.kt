@@ -91,8 +91,8 @@ class AppSettings(context: Context) {
 }
 
 /** 記住的關卡（敵人畫面特徵 ＋ 機制）的存取 */
-class StagePresetStore(context: Context) {
-    private val sp = context.getSharedPreferences("stage", Context.MODE_PRIVATE)
+class StagePresetStore(context: Context, prefsName: String = "stage") {
+    private val sp = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
 
     fun load(): MutableList<StagePreset> {
         val out = ArrayList<StagePreset>()

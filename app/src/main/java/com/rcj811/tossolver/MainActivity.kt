@@ -244,7 +244,7 @@ class MainActivity : Activity() {
             REQ_EXPORT -> runCatching { DataBackup.exportTo(this, uri) }
                 .onSuccess { Toast.makeText(this, "已匯出全部資料。移除程式前請確認這個檔案還在", Toast.LENGTH_LONG).show() }
                 .onFailure { Toast.makeText(this, "匯出失敗：${it.message}", Toast.LENGTH_LONG).show() }
-            REQ_IMPORT -> runCatching { DataBackup.importFrom(this, uri) }
+            REQ_IMPORT -> runCatching { DataBackup.mergeFrom(this, uri) }
                 .onSuccess { v ->
                     // 重新載入：App 與自轉珠服務都改用還原的資料
                     settings = AppSettings(this)
@@ -253,7 +253,7 @@ class MainActivity : Activity() {
                     AutoTurnService.instance?.reloadModel()
                     refreshAuto()
                     AlertDialog.Builder(this).setTitle("匯入完成")
-                        .setMessage("已還原備份 $v 的全部資料。\n盤面校正位置也一起還原了；如果這支手機的螢幕大小不同，請按「校」重新對齊。")
+                        .setMessage("$v\n\n目前的資料都保留，備份裡沒有重複的才新增。\n如果這支手機的螢幕大小不同，請按「校」重新對齊。")
                         .setPositiveButton("好", null).show()
                 }
                 .onFailure { Toast.makeText(this, "匯入失敗：${it.message}", Toast.LENGTH_LONG).show() }
