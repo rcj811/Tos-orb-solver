@@ -85,6 +85,8 @@ class AutoTurnService : AccessibilityService() {
     private var stateModel = StateModel()
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    /** 截圖轉換與盤面辨識（背景執行緒）：不佔用主執行緒，點按鈕、拖工具列才不會卡 */
+    private val shotExec = Executors.newSingleThreadExecutor()
 
     // 工作列
     private var bar: LinearLayout? = null
@@ -461,7 +463,7 @@ class AutoTurnService : AccessibilityService() {
     @TargetApi(30)
     private fun takeShotOnce(cb: (Frame?) -> Unit) {
         try {
-            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
+            takeScreenshot(Display.DEFAULT_DISPLAY, shotExec, object : AccessibilityService.TakeScreenshotCallback {
                 override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
                     var frame: Frame? = null
                     try {
@@ -478,10 +480,11 @@ class AutoTurnService : AccessibilityService() {
                         }
                     } catch (_: Throwable) {
                     }
-                    cb(frame)
+                    val f = frame
+                    main.post { cb(f) }   // 轉換在背景做完，結果交回主執行緒
                 }
 
-                override fun onFailure(errorCode: Int) = cb(null)
+                override fun onFailure(errorCode: Int) { main.post { cb(null) } }
             })
         } catch (_: Throwable) {
             cb(null)
@@ -568,6 +571,7 @@ class AutoTurnService : AccessibilityService() {
         flushLearning()
         cleanup()
         runCatching { worker.shutdownNow() }
+        runCatching { shotExec.shutdownNow() }
         runCatching {
             (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).appTasks.forEach { it.finishAndRemoveTask() }
         }
@@ -768,8 +772,33 @@ class AutoTurnService : AccessibilityService() {
             if (!running) return
             if (busy) { main.postDelayed(this, 400); return }
             busy = true
-            capture { frame -> onAutoFrame(frame) }
+            capture { frame ->
+                if (frame == null) { onAutoFrame(null, null); return@capture }
+                // 辨識、亮度、過場、問號盤判斷都在背景算，算完才回主執行緒做決定
+                val geo = settings.geometry
+                runCatching {
+                    shotExec.execute {
+                        val a = runCatching { analyze(frame, geo) }.getOrNull()
+                        main.post { onAutoFrame(frame, a) }
+                    }
+                }.onFailure { onAutoFrame(null, null) }
+            }
         }
+    }
+
+    /** 背景執行緒算好的一張截圖的結果 */
+    private class Analysis(
+        val rec: Recognition, val board: IntArray, val unknown: Int, val solveCells: IntArray,
+        val lum: Float, val hidden: Boolean, val sig: FloatArray,
+    )
+
+    private fun analyze(frame: Frame, geo: BoardGeometry): Analysis {
+        val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
+        val cells = rec.solverCells()
+        return Analysis(
+            rec, OrbRecognizer.maskedBoard(rec), rec.unknownCount(), cells,
+            boardLum(frame, geo), looksHidden(frame, geo), screenSig(frame),
+        )
     }
 
     private fun next(delay: Long) {
@@ -778,29 +807,29 @@ class AutoTurnService : AccessibilityService() {
         if (running) main.postDelayed(autoTick, delay)
     }
 
-    private fun onAutoFrame(frame: Frame?) {
+    private fun onAutoFrame(frame: Frame?, a: Analysis?) {
         lastTickAt = SystemClock.uptimeMillis()
         if (!running) { busy = false; updateBar(); return }
-        if (frame == null) { next(800); return }
+        if (frame == null || a == null) { next(800); return }
         val now = SystemClock.uptimeMillis()
 
         // 1) 戰鬥中：盤面靜止就轉珠
         //    和「轉」一樣容許少數格子認不出來（當障礙避開）；靜止判斷只比較認得出來的格子
         val geo = settings.geometry
-        val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
-        val board = OrbRecognizer.maskedBoard(rec)
-        val unknown = rec.unknownCount()
-        val solveCells = rec.solverCells()
-        val pending = NativeSolver.countCombos(solveCells, geo.rows)
+        val rec = a.rec
+        val board = a.board
+        val unknown = a.unknown
+        val solveCells = a.solveCells
+        val pending = NativeSolver.countCombos(solveCells, geo.rows)   // 求解器共用狀態：留在主執行緒
         // 遊戲的盤面本來就可能有現成的三連（回合結束才一起消），不能當成「還在落珠」。
         // 改成只看是否靜止；有現成三連時多確認一張截圖，避免抓到消除動畫中間的畫面
         // 攻擊／技能動畫時遊戲會把盤面蓋暗（亮度約剩一半）：不能當成可以轉的盤面，
         // 暗掉的珠會被誤認成冰封、石化，整盤「不能碰」而停住
-        val lum = boardLum(frame, geo)
+        val lum = a.lum
         val dimmed = lumRef > 0f && lum < lumRef * 0.7f
         if (dimmed) lastScreenChangeAt = now   // 動畫中：暫停秒數從頭算
         // 問號盤：每格長得一樣（問號珠可能被認成某種珠或 X）→ 不當成一般盤面，走「先移一格」
-        val hiddenNow = !dimmed && looksHidden(frame, geo)
+        val hiddenNow = !dimmed && a.hidden
         val ready = !dimmed && !hiddenNow && unknown <= OrbRecognizer.maxUnknown(geo.cells)
         if (dimmed) status("動畫中（盤面變暗），等待下一回合…", important = false)
         if (ready) { lastBoardAt = now; noteUnknown(unknown) }
@@ -865,7 +894,7 @@ class AutoTurnService : AccessibilityService() {
             return
         }
         // 過場／換場次：畫面還在變化就把暫停秒數從頭算
-        val sig = screenSig(frame)
+        val sig = a.sig
         val changing = lastScreen?.let { screenDiff(it, sig) > SCREEN_CHANGE } ?: false
         lastScreen = sig
         if (!ready && changing) lastScreenChangeAt = now
