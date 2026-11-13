@@ -43,6 +43,11 @@ class AppSettings(context: Context) {
         get() = sp.getInt("dirs", 8)
         set(v) = sp.edit().putInt("dirs", v).apply()
 
+    /** 崩潰紀錄：已經顯示過的 Android 結束紀錄時間（避免重複顯示） */
+    var lastExitSeen: Long
+        get() = sp.getLong("lastExitSeen", 0L)
+        set(v) = sp.edit().putLong("lastExitSeen", v).apply()
+
     /** 工具列上方的訊息列：開／關（工具列 ⚙ 按鈕切換） */
     var showStatus: Boolean
         get() = sp.getBoolean("showStatus", true)

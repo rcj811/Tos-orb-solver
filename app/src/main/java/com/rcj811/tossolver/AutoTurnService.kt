@@ -155,6 +155,7 @@ class AutoTurnService : AccessibilityService() {
     // ---------------- 生命週期 ----------------
 
     override fun onServiceConnected() {
+        CrashLog.install(this)
         super.onServiceConnected()
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -170,6 +171,80 @@ class AutoTurnService : AccessibilityService() {
         Toast.makeText(this, "自轉珠 ${appVersion(this)} 已啟動", Toast.LENGTH_LONG).show()
         addToolbar()
         if (Build.VERSION.SDK_INT < 30) toast("自動截圖需要 Android 11 以上")
+        registerTestHooks()
+    }
+
+    // ---------------- 自動化測試（只在模擬器開了測試旗標時作用） ----------------
+    private var testReceiver: android.content.BroadcastReceiver? = null
+    private var stageBoardView: View? = null
+    private val testRnd = kotlin.random.Random(7)
+
+    private fun registerTestHooks() {
+        if (!TestHooks.enabled(this) || testReceiver != null) return
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context?, i: Intent?) {
+                val cmd = i?.getStringExtra("cmd") ?: return
+                TestHooks.log("指令 $cmd")
+                try { testCommand(cmd) } catch (t: Throwable) { TestHooks.log("指令失敗 $cmd：$t"); throw t }
+            }
+        }
+        testReceiver = r
+        val f = android.content.IntentFilter(TestHooks.ACTION)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(r, f, android.content.Context.RECEIVER_EXPORTED) else registerReceiver(r, f)
+        TestHooks.log("測試指令已啟用")
+    }
+
+    private fun testCommand(cmd: String) {
+        val p = cmd.split(':')
+        val n = p.getOrNull(1)?.toIntOrNull() ?: 1
+        val skip = setOf("✕")
+        when (p[0]) {
+            "geo" -> { val v = p[1].split(',').map { it.toFloat() }; settings.geometry = BoardGeometry(v[0], v[1], v[2], v[3].toInt()) }
+            "play" -> toggleAuto()
+            "once" -> onOnceTap()
+            "plus" -> onPlusTap()
+            "calib" -> openCalibration()
+            "stage" -> openStagePanel()
+            "gear" -> toggleStatus()
+            // 校正畫面：隨機點／長按盤面格子（真的觸控事件）
+            "calibtap" -> calibView?.let { v ->
+                repeat(n) {
+                    val i = testRnd.nextInt(v.geo.cells)
+                    val x = v.geo.centerX(i); val y = v.geo.centerY(i)
+                    val hold = if (testRnd.nextInt(4) == 0) 700L else 60L
+                    TestHooks.log("校正 ${if (hold > 100) "長按" else "點"} 第 $i 格")
+                    TestHooks.touch(v, x, y, hold)
+                }
+            }
+            // 「關」面板盤面：隨機點格子（依目前筆刷）
+            "stagecell" -> stageBoardView?.let { v ->
+                val g = settings.geometry
+                repeat(n) {
+                    val i = testRnd.nextInt(g.cells)
+                    TestHooks.log("關 盤面點第 $i 格")
+                    TestHooks.touch(v, g.centerX(i), g.centerY(i), 60L)
+                }
+            }
+            // 隨機點：bar＝工具列、calib＝校正面板、stage＝關面板、all＝全部
+            "monkey" -> {
+                val where = p.getOrNull(2) ?: "all"
+                val roots = when (where) {
+                    "bar" -> listOf(bar)
+                    "calib" -> listOf(calibRoot)
+                    "stage" -> listOf(stageRoot)
+                    else -> listOf(bar, calibRoot, stageRoot)
+                }
+                // 自動測試不按「關閉／取消／完成」以外的離開鍵；工具列的 ✕ 永遠不按
+                TestHooks.monkey(roots, n, testRnd, skip)
+            }
+            "click" -> {
+                val label = p.getOrNull(1) ?: return
+                val v = listOf(bar, calibRoot, stageRoot).flatMap { TestHooks.clickables(it) }.firstOrNull { TestHooks.label(it).startsWith(label) }
+                TestHooks.log(if (v != null) "點「${TestHooks.label(v)}」" else "找不到「$label」")
+                v?.performClick()
+            }
+            "state" -> TestHooks.log("狀態 running=$running busy=$busy calib=${calibRoot != null} stage=${stageRoot != null} bar=${bar != null} stage=${stage.summary()}")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
@@ -187,6 +262,8 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun cleanup() {
+        testReceiver?.let { runCatching { unregisterReceiver(it) } }
+        testReceiver = null
         if (!::wm.isInitialized) return
         stopAuto(null)
         closeCalibration()
@@ -783,15 +860,15 @@ class AutoTurnService : AccessibilityService() {
             if (busy) { main.postDelayed(this, 400); return }
             busy = true
             capture(pooled = true) { frame ->
-                if (frame == null) { onAutoFrame(null, null); return@capture }
+                if (frame == null) { safeAutoFrame(null, null); return@capture }
                 // 辨識、亮度、過場、問號盤判斷都在背景算，算完才回主執行緒做決定
                 val geo = settings.geometry
                 runCatching {
                     shotExec.execute {
                         val a = runCatching { analyze(frame, geo) }.getOrNull()
-                        main.post { onAutoFrame(frame, a) }
+                        main.post { safeAutoFrame(frame, a) }
                     }
-                }.onFailure { onAutoFrame(null, null) }
+                }.onFailure { safeAutoFrame(null, null) }
             }
         }
     }
@@ -815,6 +892,17 @@ class AutoTurnService : AccessibilityService() {
         busy = false
         updateBar()
         if (running) main.postDelayed(autoTick, delay)
+    }
+
+    /** 自動轉珠的一張截圖：出錯就記錄下來繼續跑，不讓整個服務崩潰（工具列消失） */
+    private fun safeAutoFrame(frame: Frame?, a: Analysis?) {
+        try {
+            onAutoFrame(frame, a)
+        } catch (t: Throwable) {
+            CrashLog.record(this, "自動轉珠", t)
+            status("出了一點錯，已記錄並繼續（打開自轉珠 App 可以看錯誤紀錄）", important = false)
+            next(1000)
+        }
     }
 
     private fun onAutoFrame(frame: Frame?, a: Analysis?) {
@@ -1296,7 +1384,7 @@ class AutoTurnService : AccessibilityService() {
         val themed = ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault)
         val edit = StageRules().apply { copyFrom(initial) }
         val root = FrameLayout(themed).apply { setBackgroundColor(Color.argb(60, 0, 0, 0)) }
-        val board = StageRulesView(themed).apply {
+        val board = StageRulesView(themed).also { stageBoardView = it }.apply {
             geo = settings.geometry
             rules = edit
         }

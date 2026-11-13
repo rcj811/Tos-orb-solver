@@ -20,6 +20,14 @@
             </intent-filter>
         </activity>
 
+        <!-- 自動化測試用的假遊戲畫面（只在模擬器開了測試旗標時作用） -->
+        <activity
+            android:name=".DemoScreenActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
         <service
             android:name=".AutoTurnService"
             android:exported="true"

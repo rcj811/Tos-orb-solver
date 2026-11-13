@@ -59,6 +59,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashLog.install(this)
         settings = AppSettings(this)
         colorStore = ColorStore(this)
         OrbTypeStore(this).apply()
@@ -202,7 +203,25 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshAuto()
+        showCrashLogIfAny()
         main.postDelayed({ askPermissionsIfNeeded() }, 350)
+    }
+
+    /** 上次程式出錯：顯示原因，可以一鍵複製給開發者 */
+    private fun showCrashLogIfAny() {
+        val text = runCatching { CrashLog.pending(this, settings) }.getOrNull() ?: return
+        android.app.AlertDialog.Builder(this)
+            .setTitle("自轉珠上次出錯了")
+            .setMessage("下面是錯誤紀錄。按「複製」後貼給 Claude，就能找出原因。\n\n如果工具列不見了：到「無障礙設定」把自轉珠關掉再打開即可，不用移除程式（移除會清掉學過的資料）。\n\n" + text.take(3000))
+            .setPositiveButton("複製") { _, _ ->
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("自轉珠錯誤紀錄", text))
+                CrashLog.clear(this)
+                Toast.makeText(this, "已複製錯誤紀錄", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("清除") { _, _ -> CrashLog.clear(this) }
+            .setNeutralButton("稍後", null)
+            .show()
     }
 
     // ---------- 開啟權限的引導流程（自動跳到正確的設定頁，並提示要按哪裡） ----------
