@@ -113,6 +113,21 @@ kill $LOGPID 2> /dev/null
 adb shell run-as $PKG cat files/crash_log.txt > "$OUT/crash_log.txt" 2> /dev/null
 adb shell dumpsys accessibility > "$OUT/accessibility.txt" 2> /dev/null
 
+say "ANR／崩潰細節"
+ANRLINE=$(grep -n "ANR in $PKG" "$OUT/logcat.txt" | head -1 | cut -d: -f1)
+if [ -n "$ANRLINE" ]; then
+  echo "--- ANR 之前的 30 個測試步驟"
+  head -n "$ANRLINE" "$OUT/logcat.txt" | grep "TOSTEST" | tail -30
+  echo "--- ANR 訊息"
+  sed -n "${ANRLINE},$((ANRLINE + 25))p" "$OUT/logcat.txt"
+  echo "--- 主執行緒卡在哪裡（/data/anr）"
+  adb root > /dev/null 2>&1; sleep 3
+  for f in $(adb shell ls /data/anr/ 2> /dev/null | tr -d '\r'); do
+    echo "檔案 $f"
+    adb shell cat "/data/anr/$f" 2> /dev/null | awk '/Cmd line: com.rcj811.tossolver/{on=1} on' | awk '/^"main"/{p=1} p{print; n++} n>45{exit}'
+  done
+fi
+
 say "結果"
 grep -n "TOSTEST" "$OUT/logcat.txt" | tail -5
 FATAL=$(grep -nE "FATAL EXCEPTION|Fatal signal|ANR in $PKG|$PKG.*has died|Process: $PKG" "$OUT/logcat.txt" | head -40)
