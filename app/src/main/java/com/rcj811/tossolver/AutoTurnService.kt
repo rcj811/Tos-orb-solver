@@ -1713,18 +1713,28 @@ class AutoTurnService : AccessibilityService() {
             "無法辨識 $unknown 格・已修正 $fixed 格・累計學習 ${colorStore.learnedSamples} 格"
     }
 
+    /** 自動找盤面：要試上千個位置，放在背景做（畫面不卡），找到再套用 */
     private fun autoDetectInCalibration() {
         val v = calibView ?: return
         val f = calibFrame ?: return
-        val g = OrbRecognizer.autoDetect(f, v.geo.rows, model)
-        if (g == null) {
-            toast("找不到盤面：請在戰鬥畫面（珠子靜止時）再試，或手動拖曳格線")
-            recognizeInCalibration()
-            return
+        val rows = v.geo.rows
+        val seq = ++calibSeq
+        calibInfo?.text = "自動偵測盤面中…"
+        runCatching {
+            shotExec.execute {
+                val g = runCatching { OrbRecognizer.autoDetect(f, rows, model) }.getOrNull()
+                main.post {
+                    if (seq != calibSeq || calibView !== v) return@post
+                    if (g == null) {
+                        toast("找不到盤面：請在戰鬥畫面（珠子靜止時）再試，或手動拖曳格線")
+                    } else {
+                        v.geo = g
+                        toast("已偵測到盤面")
+                    }
+                    recognizeInCalibration()
+                }
+            }
         }
-        v.geo = g
-        recognizeInCalibration()
-        toast("已偵測到盤面")
     }
 
     private fun cycleRows(b: Button) {

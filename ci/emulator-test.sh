@@ -23,9 +23,13 @@ say "安裝"
 adb install -r -g "$APK"
 adb shell settings put global tos_orb_test 1
 adb shell am start -n $PKG/.MainActivity > /dev/null; sleep 4
-adb shell mkdir -p /sdcard/Android/data/$PKG/files/demo
-adb push ci/demo/. /sdcard/Android/data/$PKG/files/demo/ > /dev/null
-adb shell ls /sdcard/Android/data/$PKG/files/demo/
+# 測試畫面放進 App 自己的資料夾（debug 版可以用 run-as）
+adb shell mkdir -p /data/local/tmp/demo
+adb push ci/demo/. /data/local/tmp/demo/ > /dev/null
+adb shell chmod 644 /data/local/tmp/demo/*
+adb shell run-as $PKG mkdir -p files/demo
+for f in ci/demo/*.jpg; do adb shell run-as $PKG cp /data/local/tmp/demo/$(basename $f) files/demo/; done
+adb shell run-as $PKG ls -la files/demo/
 
 adb logcat -c
 adb logcat -v time > "$OUT/logcat.txt" 2>&1 &

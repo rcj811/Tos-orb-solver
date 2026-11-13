@@ -44,7 +44,7 @@ class DemoScreenActivity : Activity() {
 
     private fun show(i: Intent?) {
         val name = i?.getStringExtra("img") ?: return
-        val f = File(getExternalFilesDir(null), "demo/$name.jpg")
+        val f = File(filesDir, "demo/$name.jpg")   // 測試腳本用 run-as 放進 App 自己的資料夾
         val bm = BitmapFactory.decodeFile(f.path)
         TestHooks.log("畫面 $name ${if (bm != null) "${bm.width}x${bm.height}" else "讀不到 ${f.path}"}")
         img.setImageBitmap(bm)

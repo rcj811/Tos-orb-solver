@@ -40,6 +40,7 @@ object ShapeMatcher {
     /** 是不是黑白盤面 */
     fun isGray(frame: Frame, geo: BoardGeometry): Boolean {
         val vals = ArrayList<Int>()
+        val lums = ArrayList<Int>()
         for (i in 0 until geo.cells) {
             val cx = geo.centerX(i); val cy = geo.centerY(i)
             for (dy in -2..2) for (dx in -2..2) {
@@ -48,10 +49,13 @@ object ShapeMatcher {
                 val p = frame.pixels[y * frame.width + x]
                 val r = (p shr 16) and 255; val g = (p shr 8) and 255; val b = p and 255
                 vals.add(maxOf(r, g, b) - minOf(r, g, b))
+                lums.add(maxOf(r, g, b))
             }
         }
         if (vals.size < 10) return false
-        vals.sort()
+        vals.sort(); lums.sort()
+        // 太暗（黑畫面、過場、攻擊動畫把盤面蓋暗）不是黑白盤面：不走很慢的形狀比對
+        if (lums[lums.size / 2] < 60) return false
         return vals[vals.size / 2] < GRAY_CHROMA
     }
 

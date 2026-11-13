@@ -417,11 +417,11 @@ object OrbRecognizer {
     /** stateModel 為 null 時不判斷狀態（自動偵測盤面時用，速度較快） */
     fun recognize(
         frame: Frame, geo: BoardGeometry, model: ColorModel, stateModel: StateModel? = null,
-        extraShapes: List<Pair<Int, FloatArray>> = emptyList(),
+        extraShapes: List<Pair<Int, FloatArray>> = emptyList(), allowShape: Boolean = true,
     ): Recognition {
         val n = geo.cells
         // 黑白盤面（黑白符石）：顏色沒有意義，改用符石形狀邊緣判斷
-        val sr = if (ShapeMatcher.isGray(frame, geo)) runCatching { ShapeMatcher.recognize(frame, geo, extraShapes) }.getOrNull() else null
+        val sr = if (allowShape && ShapeMatcher.isGray(frame, geo)) runCatching { ShapeMatcher.recognize(frame, geo, extraShapes) }.getOrNull() else null
         if (sr != null) {
             val states = IntArray(n)
             val descs = if (stateModel != null) Array(n) { stateDescriptor(frame, geo, it) } else null
@@ -499,7 +499,8 @@ object OrbRecognizer {
      * 加上格線檢查才能把格子對準珠心，也能排除整片同色的 UI 區塊。
      */
     fun alignmentScore(frame: Frame, geo: BoardGeometry, model: ColorModel): Float {
-        val rec = recognize(frame, geo, model)
+        // 自動找盤面要試上千個位置：只用顏色判斷（形狀比對每個位置都要重新對位，太慢）
+        val rec = recognize(frame, geo, model, allowShape = false)
         val f = FloatArray(3)
         val d2 = FloatArray(1)
         val c = geo.cell
