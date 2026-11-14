@@ -78,7 +78,9 @@ alive 校
 
 say "5a. 關：分組版面與選中變色"
 L0=$(wc -l < "$OUT/logcat.txt")
-show normal3; cmd stage; sleep 4
+show normal3; sleep 6
+for t in 1 2 3; do cmd stage; sleep 5; done
+cmd state; sleep 1
 cmd click:形狀盾; sleep 1
 cmd click:十字; sleep 1
 cmd click:黏手路徑; sleep 1
