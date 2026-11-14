@@ -77,13 +77,15 @@ cmd click:關閉; sleep 1
 alive 校
 
 say "5a. 關：分組版面與選中變色"
-show normal3; cmd stage; sleep 3
+L0=$(wc -l < "$OUT/logcat.txt")
+show normal3; cmd stage; sleep 4
 cmd click:形狀盾; sleep 1
 cmd click:十字; sleep 1
 cmd click:黏手路徑; sleep 1
 cmd click:形狀顏色; sleep 1
 cmd stagedump; sleep 2
-grep "版面" "$OUT/logcat.txt" | sed 's/.*TOSTEST[^:]*: //' | tail -80
+sleep 2
+tail -n +"$L0" "$OUT/logcat.txt" | grep -E "TOSTEST|AndroidRuntime" | sed 's/.*TOSTEST[^:]*: //' | head -120
 adb shell input keyevent 4; sleep 1
 cmd click:取消; sleep 1
 
