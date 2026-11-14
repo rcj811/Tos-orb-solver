@@ -17,6 +17,14 @@ class StagePanelModel(val edit: StageRules) {
         val BRUSH_ROWS = intArrayOf(4, 3, 3)
         val BUTTON_ORDER = listOf("combo", "first", "three", "attr", "num", "shape", "shapeColor", "sticky", "fire", "groupK", "reveal")
         val MASK_ORDER = listOf("allMask", "antiMask", "groupMask")
+        /** 條件分組：相關的按鈕和顏色列放在同一區（沒列到的新條件放「其他」） */
+        val GROUPS = listOf(
+            "Combo／消除" to listOf("combo", "attr", "num"),
+            "首消" to listOf("first", "three", "allMask", "antiMask"),
+            "形狀盾" to listOf("shape", "shapeColor"),
+            "同色組" to listOf("groupK", "groupMask"),
+            "路徑／盤面" to listOf("sticky", "fire", "reveal"),
+        )
         private fun <T : Ctl> ordered(all: List<T>, order: List<String>) =
             all.sortedBy { c -> order.indexOf(c.id).let { if (it < 0) Int.MAX_VALUE else it } }
     }
@@ -24,6 +32,32 @@ class StagePanelModel(val edit: StageRules) {
     val brushes: List<Ctl.Brush> = ordered(StageConds.CONTROLS.filterIsInstance<Ctl.Brush>(), BRUSH_ORDER)
     val buttons: List<Ctl> = ordered(StageConds.CONTROLS.filter { it is Ctl.Choice || it is Ctl.Toggle }, BUTTON_ORDER)
     val masks: List<Ctl.Mask> = ordered(StageConds.CONTROLS.filterIsInstance<Ctl.Mask>(), MASK_ORDER)
+
+    class Group(val title: String, val buttons: List<Ctl>, val masks: List<Ctl.Mask>)
+
+    /** 分組後的條件（按鈕在上、顏色列在下） */
+    val groups: List<Group> = run {
+        val all = buttons + masks
+        val used = HashSet<String>()
+        val out = GROUPS.map { (t, ids) ->
+            val cs = ids.mapNotNull { id -> all.firstOrNull { it.id == id } }
+            used.addAll(cs.map { it.id })
+            Group(t, cs.filter { it !is Ctl.Mask }, cs.filterIsInstance<Ctl.Mask>())
+        }.toMutableList()
+        val rest = all.filter { it.id !in used }
+        if (rest.isNotEmpty()) out.add(Group("其他", rest.filter { it !is Ctl.Mask }, rest.filterIsInstance<Ctl.Mask>()))
+        out.filter { it.buttons.isNotEmpty() || it.masks.isNotEmpty() }
+    }
+
+    /** 這個條件有沒有設定（有設定的按鈕換顏色） */
+    fun isActive(c: Ctl): Boolean = when (c) {
+        is Ctl.Choice -> c.selected(edit) > 0
+        is Ctl.Toggle -> toggleOn(c)
+        is Ctl.Brush -> c.count(edit) > 0
+        is Ctl.Mask -> c.get(edit) != 0
+    }
+
+    fun groupActive(g: Group) = (g.buttons + g.masks).any { isActive(it) }
 
     /** 筆刷分列（照之前 4、3、3；多出來的再每列 4 顆） */
     fun brushRows(): List<List<Ctl.Brush>> {

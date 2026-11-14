@@ -76,6 +76,17 @@ cmd click:儲存並學習; sleep 2
 cmd click:關閉; sleep 1
 alive 校
 
+say "5a. 關：分組版面與選中變色"
+show normal3; cmd stage; sleep 3
+cmd click:形狀盾; sleep 1
+cmd click:十字; sleep 1
+cmd click:黏手路徑; sleep 1
+cmd click:形狀顏色; sleep 1
+cmd stagedump; sleep 2
+grep "版面" "$OUT/logcat.txt" | sed 's/.*TOSTEST[^:]*: //' | tail -80
+adb shell input keyevent 4; sleep 1
+cmd click:取消; sleep 1
+
 say "5. 關：每顆按鈕、選項、顏色、筆刷、盤面格子"
 for round in 1 2 3; do
   show normal3; cmd stage; sleep 3; shot "stage-$round"

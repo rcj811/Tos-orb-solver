@@ -41,6 +41,38 @@ class StagePanelModelTest {
     }
 
     @Test
+    fun relatedControlsAreGroupedTogether() {
+        val m = model()
+        val g = m.groups.associate { it.title to (it.buttons + it.masks).map { c -> c.id } }
+        assertEquals(listOf("shape", "shapeColor"), g["形狀盾"])
+        assertEquals(listOf("groupK", "groupMask"), g["同色組"])
+        assertEquals(listOf("first", "three", "allMask", "antiMask"), g["首消"])
+        // 每個條件剛好出現在一組
+        val all = m.groups.flatMap { it.buttons + it.masks }.map { it.id }
+        assertEquals(all.size, all.toSet().size)
+        assertEquals((m.buttons + m.masks).map { it.id }.toSet(), all.toSet())
+    }
+
+    @Test
+    fun selectedControlsLightUp() {
+        val m = model()
+        assertTrue((m.buttons + m.masks + m.brushes).none { m.isActive(it) })
+        val shape = m.find("shape") as Ctl.Choice
+        m.tapButton(shape); m.pickOption(1)
+        assertTrue(m.isActive(shape))
+        assertTrue(m.groupActive(m.groups.first { it.title == "形狀盾" }))
+        assertFalse(m.groupActive(m.groups.first { it.title == "同色組" }))
+        val sticky = m.find("sticky") as Ctl.Toggle
+        m.tapButton(sticky); assertTrue(m.isActive(sticky))
+        m.tapButton(sticky); assertFalse(m.isActive(sticky))
+        m.tapMask(m.find("groupMask") as Ctl.Mask, 0)
+        assertTrue(m.groupActive(m.groups.first { it.title == "同色組" }))
+        m.longPressButton(shape); assertFalse(m.isActive(shape))
+        m.clearAll()
+        assertTrue((m.buttons + m.masks + m.brushes).none { m.isActive(it) })
+    }
+
+    @Test
     fun anyNumberTakesTwoTaps() {
         // 每個數值條件的每個選項：點按鈕＋點選項＝2 下
         for (c in model().buttons.filterIsInstance<Ctl.Choice>()) for (k in c.options.indices) {

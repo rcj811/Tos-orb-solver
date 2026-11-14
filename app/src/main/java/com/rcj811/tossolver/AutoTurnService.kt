@@ -24,6 +24,7 @@ import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Button
@@ -215,6 +216,18 @@ class AutoTurnService : AccessibilityService() {
                     TestHooks.log("校正 ${if (hold > 100) "長按" else "點"} 第 $i 格")
                     TestHooks.touch(v, x, y, hold)
                 }
+            }
+            // 「關」面板版面：每個元件的位置、文字、底色（檢查分組與選中變色）
+            "stagedump" -> stageRoot?.let { root ->
+                fun walk(v: View, depth: Int) {
+                    if (v.visibility != View.VISIBLE) return
+                    val loc = IntArray(2); v.getLocationOnScreen(loc)
+                    val bg = ((v.background as? GradientDrawable)?.color?.defaultColor)?.let { String.format("#%06X", it and 0xFFFFFF) } ?: ""
+                    if (v is TextView) TestHooks.log("版面 ${"  ".repeat(depth)}「${v.text.toString().replace('\n', ' ').take(24)}」 ${loc[0]},${loc[1]} ${v.width}x${v.height} $bg")
+                    else if (v is LinearLayout && v.background is GradientDrawable) TestHooks.log("版面 ${"  ".repeat(depth)}[框] ${loc[0]},${loc[1]} ${v.width}x${v.height}")
+                    if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i), depth + 1)
+                }
+                walk(root, 0)
             }
             // 「關」面板盤面：隨機點格子（依目前筆刷）
             "stagecell" -> stageBoardView?.let { v ->
@@ -1464,28 +1477,52 @@ class AutoTurnService : AccessibilityService() {
             // 選項列移到剛點的按鈕那一列正下方，手指不用移遠
             (picker.parent as? LinearLayout)?.removeView(picker)
             val anchor = model.open?.let { buttonRow[it] }
-            if (anchor != null) panel.addView(picker, panel.indexOfChild(anchor) + 1)
+            (anchor?.parent as? LinearLayout)?.let { it.addView(picker, it.indexOfChild(anchor) + 1) }
             board.invalidate()
+        }
+
+        // 按鈕顏色：有設定＝綠、正在選＝橘、目前筆刷＝藍、沒設定＝灰
+        val C_OFF = Color.rgb(55, 71, 79); val C_ON = Color.rgb(46, 125, 50)
+        val C_OPEN = Color.rgb(239, 108, 0); val C_BRUSH = Color.rgb(21, 101, 192)
+        fun paintBtn(v: Button, color: Int) {
+            v.background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(color) }
+            v.setTextColor(Color.WHITE)
+        }
+        fun cellParams() = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) }
+        fun rowOf2(vs: List<View>, per: Int) = LinearLayout(themed).apply {
+            orientation = LinearLayout.HORIZONTAL
+            for (v in vs) addView(v, cellParams())
+            for (j in vs.size until per) addView(View(themed), LinearLayout.LayoutParams(0, 1, 1f))
         }
 
         // 筆刷：點盤面格子時要設定的機制
         val brushButtons = model.brushes.mapIndexed { k, b ->
-            btn(model.label(b)) { model.selectBrush(k); refresh() }.also { v -> refreshers.add { v.text = model.label(b) } }
+            btn(model.label(b)) { model.selectBrush(k); refresh() }.also { v ->
+                refreshers.add {
+                    v.text = model.label(b)
+                    paintBtn(v, when { model.brushes.indexOf(b) == model.brush -> C_BRUSH; model.isActive(b) -> C_ON; else -> C_OFF })
+                }
+            }
         }
         board.onCellTap = { i -> model.tapCell(i); refresh() }
 
         // 數值條件／開關：點一下（數值條件會打開選項列），長按＝回到「無」
-        val condButtons = model.buttons.map { c ->
+        val condButtons = model.buttons.associateWith { c ->
             btn(model.label(c)) { model.tapButton(c); refresh() }.also { v ->
                 v.setOnLongClickListener { model.longPressButton(c); refresh(); true }
-                refreshers.add { v.text = model.label(c) }
+                refreshers.add {
+                    v.text = model.label(c)
+                    paintBtn(v, when { model.open === c -> C_OPEN; model.isActive(c) -> C_ON; else -> C_OFF })
+                }
             }
         }
 
         // 顏色勾選列
         fun maskRow(m: Ctl.Mask): LinearLayout {
             val row = LinearLayout(themed).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            row.addView(TextView(themed).apply { text = m.title; setTextColor(Color.WHITE); textSize = 15f; setPadding(dp(4), 0, dp(4), 0) })
+            val title = TextView(themed).apply { text = m.title; textSize = 14f; setPadding(dp(4), 0, dp(4), 0) }
+            refreshers.add { title.setTextColor(if (model.isActive(m)) Color.rgb(165, 214, 167) else Color.WHITE) }
+            row.addView(title, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             for (c in 0 until 6) {
                 val chip = TextView(themed).apply {
                     text = StageRules.ORB_SHORT[c]
@@ -1509,14 +1546,34 @@ class AutoTurnService : AccessibilityService() {
         }
 
         panel.addView(summary)
-        // 筆刷照之前的 4、3、3 排；條件按鈕每列 3 顆
-        for (row in model.brushRows()) panel.addView(rowOf(*row.map { brushButtons[model.brushes.indexOf(it)] }.toTypedArray<View>()))
-        model.buttons.chunked(3).forEach { cs ->
-            val row = rowOf(*cs.map { condButtons[model.buttons.indexOf(it)] }.toTypedArray<View>())
-            for (c in cs) buttonRow[c] = row
-            panel.addView(row)
+        // 筆刷照之前的 4、3、3 排
+        for (row in model.brushRows()) panel.addView(rowOf2(row.map { brushButtons[model.brushes.indexOf(it)] }, 4))
+        // 條件分組：每組一個框，相關的按鈕和顏色列放在一起
+        for (g in model.groups) {
+            val box = LinearLayout(themed).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(4), dp(2), dp(4), dp(4))
+            }
+            val head = TextView(themed).apply { text = g.title; textSize = 13f; setPadding(dp(4), dp(2), 0, 0) }
+            refreshers.add {
+                val on = model.groupActive(g)
+                head.text = (if (on) "● " else "") + g.title
+                head.setTextColor(if (on) Color.rgb(165, 214, 167) else Color.rgb(176, 190, 197))
+                box.background = GradientDrawable().apply {
+                    cornerRadius = dp(8).toFloat()
+                    setColor(Color.argb(40, 255, 255, 255))
+                    setStroke(dp(1), if (on) Color.rgb(102, 187, 106) else Color.argb(70, 255, 255, 255))
+                }
+            }
+            box.addView(head)
+            g.buttons.chunked(3).forEach { cs ->
+                val row = rowOf2(cs.map { condButtons.getValue(it) }, 3)
+                for (c in cs) buttonRow[c] = row   // 選項列放在這一列正下方
+                box.addView(row)
+            }
+            for (m in g.masks) box.addView(maskRow(m))
+            panel.addView(box, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(0, dp(3), 0, dp(3)) })
         }
-        for (m in model.masks) panel.addView(maskRow(m))
         panel.addView(rowOf(
             btn("清除全部") { model.clearAll(); refresh() },
             btn("取消") { closeStagePanel() },
