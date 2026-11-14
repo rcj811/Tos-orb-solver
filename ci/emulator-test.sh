@@ -61,6 +61,7 @@ say "3. ＋：讀技能卡（沒有卡片的畫面）"
 show normal2; cmd plus; sleep 8; shot plus
 adb shell input keyevent 4; sleep 1
 show normal2; sleep 2
+cmd state; sleep 1
 alive ＋
 
 say "4. 校：點格子、長按、各種按鈕"
@@ -74,9 +75,11 @@ show normal1; cmd calib; sleep 3
 cmd calibtap:30; sleep 1
 cmd click:儲存並學習; sleep 2
 cmd click:關閉; sleep 1
+cmd state; sleep 1
 alive 校
 
 say "5a. 關：分組版面與選中變色"
+grep "TOSTEST" "$OUT/logcat.txt" | grep -E "狀態|忙碌" | sed 's/.*TOSTEST[^:]*: //' | tail -4
 L0=$(wc -l < "$OUT/logcat.txt")
 show normal3; sleep 6
 for t in 1 2 3; do cmd stage; sleep 5; done

@@ -106,7 +106,18 @@ class AutoTurnService : AccessibilityService() {
     private var calibFrame: Frame? = null
 
     // 執行狀態
+    private var busySince = 0L
     private var busy = false
+        set(v) { if (v && !field) busySince = SystemClock.uptimeMillis(); field = v }
+
+    /** 「忙碌中」卡太久（某個回呼沒回來）：按按鈕時自動解開，不會整個卡住 */
+    private fun unstickBusy() {
+        if (busy && !running && SystemClock.uptimeMillis() - busySince > 20_000) {
+            TestHooks.log("忙碌卡住 ${(SystemClock.uptimeMillis() - busySince) / 1000} 秒，已自動解開")
+            busy = false
+            updateBar()
+        }
+    }
     private var running = false
     private var lastSeen: IntArray? = null
     private var stableCount = 0
@@ -273,7 +284,7 @@ class AutoTurnService : AccessibilityService() {
                 val ms = android.os.SystemClock.uptimeMillis() - t0
                 TestHooks.log("備份測試 合併${if (strip(a) == strip(c) && !r2.contains("新增 [1-9]".toRegex())) "一致" else "不一致！"}（${ms}ms）$r1 | $r2".replace('\n', ' '))
             }
-            "state" -> TestHooks.log("狀態 running=$running busy=$busy calib=${calibRoot != null} stage=${stageRoot != null} bar=${bar != null} stage=${stage.summary()}")
+            "state" -> TestHooks.log("狀態 running=$running busy=$busy${if (busy) "(" + (SystemClock.uptimeMillis() - busySince) / 1000 + "秒)" else ""} calib=${calibRoot != null} stage=${stageRoot != null} bar=${bar != null} stage=${stage.summary()}")
         }
     }
 
@@ -704,6 +715,7 @@ class AutoTurnService : AccessibilityService() {
     private var strictTurn = false
 
     private fun onOnceTap(forced: StageRules? = null) {
+        unstickBusy()
         if (running) { toast("自動執行中，「轉」不能同時用。先按紅色 ■ 停止，再按「轉」"); return }
         if (busy) { toast("正在計算或轉珠，請等這一回合結束再按"); return }
         if (!checkReady()) return
@@ -1335,6 +1347,7 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun onPlusTap() {
+        unstickBusy()
         if (busy) { toast("正在計算或轉珠，請等這一回合結束再按「＋」"); return }
         if (calibRoot != null || stageRoot != null) { toast("請先關閉「校」或「關」的面板，再按「＋」"); return }
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
@@ -1377,6 +1390,7 @@ class AutoTurnService : AccessibilityService() {
     // ---------------- 關卡機制 ----------------
 
     private fun openStagePanel() {
+        unstickBusy()
         if (calibRoot != null || stageRoot != null || busy) return
         if (!settings.hasGeometry) { toast("請先按「校」校正盤面位置"); return }
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }
@@ -1639,6 +1653,7 @@ class AutoTurnService : AccessibilityService() {
     // ---------------- 校正 ----------------
 
     private fun openCalibration() {
+        unstickBusy()
         if (calibRoot != null || stageRoot != null || busy) return
         stopAuto(null)
         if (Build.VERSION.SDK_INT < 30) { toast("自動截圖需要 Android 11 以上"); return }

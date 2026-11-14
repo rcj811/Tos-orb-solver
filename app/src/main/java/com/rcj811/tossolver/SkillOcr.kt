@@ -1,19 +1,33 @@
 package com.rcj811.tossolver
 
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.atomic.AtomicBoolean
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
 
 /** 手機上的中文文字辨識（Google ML Kit，模型內建在 App 裡，不需網路、不上傳） */
 object SkillOcr {
+    private val main = Handler(Looper.getMainLooper())
+
+    /** 回呼只會呼叫一次；辨識超過時間沒回應就當讀不到（不讓按鈕卡住） */
+    private fun <T> once(timeoutMs: Long, cb: (T?) -> Unit): (T?) -> Unit {
+        val done = AtomicBoolean(false)
+        val f: (T?) -> Unit = { v -> if (done.compareAndSet(false, true)) main.post { cb(v) } }
+        main.postDelayed({ f(null) }, timeoutMs)
+        return f
+    }
+
     private val recognizer by lazy { TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build()) }
 
     /**
      * 讀敵人身上的 NUM 盾數字（每回合會變，例如 15 → 12 → 6）。
      * 只讀盤面上方、隊伍頭像以上的敵人區域；讀不到回傳 null。
      */
-    fun readNum(frame: Frame, geo: BoardGeometry, cb: (Int?) -> Unit) {
+    fun readNum(frame: Frame, geo: BoardGeometry, cb0: (Int?) -> Unit) {
+        val cb = once(1500, cb0)
         val h = (geo.top - geo.cell * 1.4f).toInt().coerceIn(1, frame.height)
         val bmp = try {
             Bitmap.createBitmap(frame.pixels, 0, frame.width, frame.width, h, Bitmap.Config.ARGB_8888)
@@ -24,6 +38,7 @@ object SkillOcr {
             recognizer.process(InputImage.fromBitmap(bmp, 0))
                 .addOnSuccessListener { cb(SkillParser.parseNum(it.text)) }
                 .addOnFailureListener { cb(null) }
+                .addOnCanceledListener { cb(null) }
                 .addOnCompleteListener { bmp.recycle() }
         } catch (_: Throwable) {
             bmp.recycle()
@@ -32,7 +47,8 @@ object SkillOcr {
     }
 
     /** 讀出整張截圖的文字；失敗回傳 null。結果在主執行緒回呼 */
-    fun read(frame: Frame, cb: (String?) -> Unit) {
+    fun read(frame: Frame, cb0: (String?) -> Unit) {
+        val cb = once(5000, cb0)
         val bmp = try {
             Bitmap.createBitmap(frame.pixels, frame.width, frame.height, Bitmap.Config.ARGB_8888)
         } catch (_: Throwable) {
@@ -42,6 +58,7 @@ object SkillOcr {
             recognizer.process(InputImage.fromBitmap(bmp, 0))
                 .addOnSuccessListener { cb(it.text) }
                 .addOnFailureListener { cb(null) }
+                .addOnCanceledListener { cb(null) }
                 .addOnCompleteListener { bmp.recycle() }
         } catch (_: Throwable) {
             bmp.recycle()
