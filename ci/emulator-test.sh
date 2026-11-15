@@ -129,17 +129,18 @@ say "7c. 機制報告"
 L1=$(wc -l < "$OUT/logcat.txt")
 cmd report; sleep 4
 tail -n +"$L1" "$OUT/logcat.txt" | grep "TOSTEST" | grep "機制報告 " | sed 's/.*TOSTEST[^:]*: //' | cut -c1-300
-adb shell run-as $PKG cat cache/report-test.zip > "$OUT/report.zip" 2> /dev/null
-if unzip -l "$OUT/report.zip" | grep -q "機制報告.txt"; then
-  echo "--- 報告檔內容"; unzip -l "$OUT/report.zip" | tail -n +4 | head -20
-  echo "--- 機制報告.txt（全文）"; unzip -p "$OUT/report.zip" "機制報告.txt" | head -400
-  # 兩張盤面圖（base64），檢查圖有沒有用
-  for img in $(unzip -l "$OUT/report.zip" | grep -o "boards/[^ ]*jpg" | head -2); do
-    echo "IMG-BEGIN $img"; unzip -p "$OUT/report.zip" "$img" | base64 -w0; echo; echo "IMG-END"
-  done
-else
-  echo "!!! 機制報告匯出失敗"; REPORT_FAIL=1
-fi
+adb exec-out run-as $PKG cat cache/report-test.zip > "$OUT/report.zip" 2> /dev/null
+python3 - "$OUT/report.zip" <<'PY' || REPORT_FAIL=1
+import sys, zipfile, base64
+z = zipfile.ZipFile(sys.argv[1])
+names = z.namelist()
+print("--- 報告檔內容"); [print("   ", n, z.getinfo(n).file_size) for n in names]
+print("--- 機制報告.txt（全文）")
+print("\n".join(z.read("機制報告.txt").decode("utf-8").splitlines()[:400]))
+for n in [n for n in names if n.startswith("boards/")][:2]:
+    print("IMG-BEGIN", n); print(base64.b64encode(z.read(n)).decode()); print("IMG-END")
+PY
+[ -n "${REPORT_FAIL:-}" ] && echo "!!! 機制報告匯出失敗"
 alive 機制報告
 
 say "8. 長時間自動轉珠（3 分鐘）"
