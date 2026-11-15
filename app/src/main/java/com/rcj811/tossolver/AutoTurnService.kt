@@ -779,6 +779,13 @@ class AutoTurnService : AccessibilityService() {
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             reportFrame = frame
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
+            // 幾乎整盤都認成不能碰（冰封／風化）：多半是攻擊動畫把盤面蓋暗了，等一下再截（最多 3 秒）
+            val blocked = (0 until geo.cells).count { rec.states[it] == OrbState.LOCKED || rec.states[it] == OrbState.NO_TOUCH }
+            if (tries < 6 && blocked >= geo.cells * 0.8f) {
+                if (tries == 0) status("盤面幾乎全部認成不能碰，可能是動畫中，等一下再看…", important = false)
+                main.postDelayed({ onceShot(forced, tries + 1) }, 500)
+                return@captureClean
+            }
             val unknown = rec.unknownCount()
             // 問號盤：整盤每格長得一樣（不管辨識認成什麼）一定先移一格看顏色；
             // 「關」有開「問號盤」時，部分格子認不出來也先移一格
