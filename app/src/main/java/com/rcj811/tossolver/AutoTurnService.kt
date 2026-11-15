@@ -85,7 +85,7 @@ class AutoTurnService : AccessibilityService() {
     private fun report(type: String, title: String, info: Map<String, Any?> = emptyMap(), rec: Recognition? = null) {
         val all = LinkedHashMap<String, Any?>()
         all["條件"] = if (stage.isEmpty()) "（一般盤，沒有條件）" else stage.summary()
-        all["條件代碼"] = stage.serialize()
+        all["條件代碼"] = stage.serialize().split(";").filterNot { it.startsWith("cells=") && it.drop(6).split(",").all { v -> v == "0" } }.joinToString(";")
         all.putAll(info)
         if (rec != null) { all["盤面"] = MechReport.boardText(rec); all["認不出的格數"] = rec.unknownCount() }
         MechReport.record(this, type, title, all, if (rec != null) reportFrame else null, if (settings.hasGeometry) settings.geometry else null)
@@ -763,9 +763,19 @@ class AutoTurnService : AccessibilityService() {
         strictTurn = forced != null
         busy = true
         updateBar("…")
+        onceShot(forced, 0)
+    }
+
+    /** 「轉」的截圖：盤面被動畫蓋暗時（暗掉的珠會被認成冰封）等一下再截，最多等 3 秒 */
+    private fun onceShot(forced: StageRules?, tries: Int) {
         captureClean { frame ->
             if (frame == null) { finishOnce(CAPTURE_FAIL); return@captureClean }
             val geo = settings.geometry
+            if (lumRef > 0f && tries < 6 && boardLum(frame, geo) < lumRef * 0.7f) {
+                if (tries == 0) status("動畫中（盤面變暗），等盤面亮起來再轉…", important = false)
+                main.postDelayed({ onceShot(forced, tries + 1) }, 500)
+                return@captureClean
+            }
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             reportFrame = frame
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
@@ -792,7 +802,10 @@ class AutoTurnService : AccessibilityService() {
                 // 條件在這盤做不到：照樣轉，用最接近條件的轉法（不要停住不動）
                 // 「關」設定的條件：衝突檢查在 solveAndAct 裡（會說出哪裡衝突）
                 if (why != null && !strictTurn) toast("$why，照最接近的轉法轉")
-                solveAndAct(rec, geo) { ok -> finishOnce(if (ok || !lastGoalsOk) null else "拖曳被中斷") }
+                solveAndAct(rec, geo) { ok ->
+                    if (ok) lumRef = boardLum(frame, geo)   // 記住正常盤面亮度（之後變暗＝動畫中）
+                    finishOnce(if (ok || !lastGoalsOk || lastNoMove) null else "拖曳被中斷")
+                }
             }
             // 面板按「完成」：照你設定的數字；按「轉」：自動讀敵人身上的 NUM 數字
             // 「關」按完成：直接照面板設定的條件轉，不再讀 NUM 數字（省時間）
@@ -828,7 +841,9 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun finishOnce(msg: String?) {
-        if (msg != null && msg != CAPTURE_FAIL) report("按「轉」沒轉成", msg)
+        // 「看不出盤面」已經另外記過（含盤面），這裡只記其他原因；數字換成 N，同一種原因才會合併
+        if (msg != null && msg != CAPTURE_FAIL && !msg.startsWith("看不出盤面"))
+            report("按「轉」沒轉成", msg.substringBefore("。").replace(Regex("\\d+"), "N"), mapOf("訊息" to msg))
         strictTurn = false
         busy = false
         updateBar()

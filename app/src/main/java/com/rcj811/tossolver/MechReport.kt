@@ -36,25 +36,26 @@ object MechReport {
 
     private fun dir(ctx: Context) = File(ctx.filesDir, DIR).apply { mkdirs() }
 
-    /** 盤面文字：每格「顏色＋狀態」，認不出的加 ? */
+    /** 盤面文字：每格固定 3 個字「顏色＋狀態＋?」，對齊好讀。狀態：·普通 +強化 風風化 電觸電 冰冰封 G起點 自自訂類別 */
     fun boardText(rec: Recognition): String {
         val c = "火水木光暗心"
-        val st = mapOf(OrbState.ENHANCED to "+", OrbState.NO_TOUCH to "風", OrbState.ELECTRIC to "電", OrbState.LOCKED to "冰", OrbState.START to "GO")
+        val st = mapOf(OrbState.NORMAL to '·', OrbState.ENHANCED to '+', OrbState.NO_TOUCH to '風', OrbState.ELECTRIC to '電', OrbState.LOCKED to '冰', OrbState.START to 'G')
+        val custom = LinkedHashMap<Int, String>()
         val sb = StringBuilder()
         for (r in 0 until rec.rows) {
             for (x in 0 until 6) {
                 val i = r * 6 + x
                 val s = rec.states[i]
-                val name = OrbTypes.get(s).name
-                var t = c.getOrElse(rec.colors[i]) { '－' }.toString() +
-                    (st[s] ?: if (s >= OrbTypes.FIRST_CUSTOM_ID) "[$name]" else "")
-                if (rec.isUnknown(i)) t += "?"
-                sb.append(t.padEnd(3, '　'))
+                val sc = st[s] ?: '自'.also { custom[s] = OrbTypes.get(s).name }
+                sb.append(c.getOrElse(rec.colors[i]) { '－' }).append(sc).append(if (rec.isUnknown(i)) '?' else '　')
                 if (x < 5) sb.append(' ')
             }
             sb.append('\n')
         }
-        return sb.toString().trimEnd()
+        sb.append("（·普通 +強化 風風化 電觸電 冰冰封 G起點 ?認不出")
+        if (custom.isNotEmpty()) sb.append("；自＝自訂：").append(custom.values.joinToString("、"))
+        sb.append('）')
+        return sb.toString()
     }
 
     /** 從截圖切出盤面（只有盤面，不含玩家資訊）縮小成 JPEG；在呼叫的執行緒只做複製，壓縮在背景 */

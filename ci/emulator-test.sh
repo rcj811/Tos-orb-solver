@@ -128,8 +128,18 @@ alive 備份
 say "7c. 機制報告"
 L1=$(wc -l < "$OUT/logcat.txt")
 cmd report; sleep 4
-tail -n +"$L1" "$OUT/logcat.txt" | grep "TOSTEST" | grep -E "機制報告|報告｜" | sed 's/.*TOSTEST[^:]*: //' | head -70
-if ! tail -n +"$L1" "$OUT/logcat.txt" | grep -q "機制報告.txt"; then echo "!!! 機制報告匯出失敗"; REPORT_FAIL=1; fi
+tail -n +"$L1" "$OUT/logcat.txt" | grep "TOSTEST" | grep "機制報告 " | sed 's/.*TOSTEST[^:]*: //' | cut -c1-300
+adb shell run-as $PKG cat cache/report-test.zip > "$OUT/report.zip" 2> /dev/null
+if unzip -l "$OUT/report.zip" | grep -q "機制報告.txt"; then
+  echo "--- 報告檔內容"; unzip -l "$OUT/report.zip" | tail -n +4 | head -20
+  echo "--- 機制報告.txt（全文）"; unzip -p "$OUT/report.zip" "機制報告.txt" | head -400
+  # 兩張盤面圖（base64），檢查圖有沒有用
+  for img in $(unzip -l "$OUT/report.zip" | grep -o "boards/[^ ]*jpg" | head -2); do
+    echo "IMG-BEGIN $img"; unzip -p "$OUT/report.zip" "$img" | base64 -w0; echo; echo "IMG-END"
+  done
+else
+  echo "!!! 機制報告匯出失敗"; REPORT_FAIL=1
+fi
 alive 機制報告
 
 say "8. 長時間自動轉珠（3 分鐘）"
