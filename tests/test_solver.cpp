@@ -394,6 +394,23 @@ int main() {
         }
     }
 
+    // 機制報告用：沒做到時要正確指出是哪一個條件
+    {
+        std::mt19937 rq(77);
+        uint8_t bb[MAX_CELLS]; for (int i = 0; i < 30; i++) bb[i] = rq() % 6;
+        Config cc; cc.maxPath = 30; cc.timeBudgetMs = 300;
+        Rules imp; imp.comboMin = 99;               // 不可能做到
+        Solution s1 = solve(bb, cc, imp);
+        CHECK(!s1.goalsMet && s1.unmetMask == (1 << 2), "Combo 99 做不到：沒做到的條件只有 Combo盾");
+        Rules mix; mix.comboMin = 3; mix.firstMin = 99;   // Combo 3 做得到、首消 99 做不到
+        Solution s2 = solve(bb, cc, mix);
+        CHECK(!s2.goalsMet && (s2.unmetMask & (1 << 3)) && !(s2.unmetMask & (1 << 2)), "多個條件：只標出做不到的首消Combo");
+        Rules easy; easy.comboMin = 2;
+        Solution s3 = solve(bb, cc, easy);
+        CHECK(s3.goalsMet && s3.unmetMask == 0, "全部做到：沒做到的條件是空的");
+        std::printf("沒做到的條件：%x / %x / %x\n", s1.unmetMask, s2.unmetMask, s3.unmetMask);
+    }
+
     std::printf(failures ? "\n%d 項失敗\n" : "\n全部通過\n", failures);
     return failures ? 1 : 0;
 }

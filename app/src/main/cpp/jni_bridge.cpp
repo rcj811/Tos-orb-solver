@@ -22,13 +22,13 @@ extern "C" {
 
 // rules：StageRules.toInts()；空陣列 = 一般盤
 // budgetMs：>0 時在此計算時間內逐步加寬 beam 重算（解題在拖曳之前，不佔遊戲轉珠時間）
-// 回傳 [found, combos, firstCombos, start, ms, 步數, goalsMet, 消珠數, 方向...]
+// 回傳 [found, combos, firstCombos, start, ms, 步數, goalsMet, 消珠數, 沒做到的條件, 方向...]
 JNIEXPORT jintArray JNICALL Java_com_rcj811_tossolver_NativeSolver_solve(JNIEnv* env, jobject /*thiz*/,
                                                                           jintArray cells, jint rows, jint beam,
                                                                           jint maxPath, jint dirs, jintArray rules,
                                                                           jint budgetMs) {
     uint8_t b[tos::MAX_CELLS];
-    std::vector<jint> out(8, 0);
+    std::vector<jint> out(9, 0);
     if (readCells(env, cells, rows, b)) {
         tos::Config cfg;
         cfg.rows = rows;
@@ -55,6 +55,7 @@ JNIEXPORT jintArray JNICALL Java_com_rcj811_tossolver_NativeSolver_solve(JNIEnv*
         out[5] = (jint)s.dirs.size();
         out[6] = s.goalsMet ? 1 : 0;
         out[7] = s.cleared;
+        out[8] = s.unmetMask;
         for (int d : s.dirs) out.push_back(d);
     }
     jintArray arr = env->NewIntArray((jsize)out.size());

@@ -1294,7 +1294,7 @@ class AutoTurnService : AccessibilityService() {
                 lastGoalsOk = !hasStage || res.goalsMet
                 if (!lastGoalsOk) report(
                     if (stage.allMask != 0) "首消必消做不到" else "條件沒做到", stage.summary(),
-                    mapOf("combo" to res.combos, "首消combo" to res.firstCombos, "步數" to res.dirs.size, "起點" to res.start,
+                    mapOf("沒做到的條件" to res.unmetNames().ifEmpty { listOf("（不明）") }, "combo" to res.combos, "首消combo" to res.firstCombos, "步數" to res.dirs.size, "起點" to res.start,
                         "計算毫秒" to res.ms, "最多步數" to maxPath, "方向" to dirs, "問號盤" to (held != null),
                         "嚴格（按完成）" to strictTurn), rec)
                 // 自我學習：記錄這關的遊玩結果（破盾成功 / 失敗），作為之後調整依據

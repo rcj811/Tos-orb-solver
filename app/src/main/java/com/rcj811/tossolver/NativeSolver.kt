@@ -33,15 +33,22 @@ class SolveResult(
     val dirs: IntArray,
     val goalsMet: Boolean = false,
     val cleared: Int = 0,
+    /** 沒做到的條件（位元，對應 C++ CondId） */
+    val unmetMask: Int = 0,
 ) {
+    /** 沒做到的條件名稱（機制報告用） */
+    fun unmetNames(): List<String> = COND_NAMES.indices.filter { unmetMask shr it and 1 == 1 }.map { COND_NAMES[it] }
+
     companion object {
-        private const val HEADER = 8
+        private const val HEADER = 9
+        val COND_NAMES = listOf("終點限制", "電擊／觸電", "Combo盾", "首消Combo", "首消屬性", "NUM", "首消每組3顆", "首消剛好",
+            "首消禁", "多屬性盾", "首消必消", "形狀盾", "盾", "同色組")
 
         fun from(raw: IntArray): SolveResult {
             if (raw.size < HEADER) return SolveResult(false, 0, 0, -1, 0, IntArray(0))
             val len = raw[5].coerceIn(0, raw.size - HEADER)
             return SolveResult(raw[0] == 1, raw[1], raw[2], raw[3], raw[4],
-                raw.copyOfRange(HEADER, HEADER + len), raw[6] == 1, raw[7])
+                raw.copyOfRange(HEADER, HEADER + len), raw[6] == 1, raw[7], raw[8])
         }
     }
 

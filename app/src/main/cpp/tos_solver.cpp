@@ -733,6 +733,8 @@ Solution solve(const uint8_t* cells, const Config& cfg, const Rules& rules) {
     r.firstOrbs = in.firstOrbs;
     r.cleared = in.cleared;
     r.goalsMet = best.ok;
+    for (int k = 0; k < NCOND; k++)
+        if (condActive(k) && condDeficit(k, in, best.pos) > 0) r.unmetMask |= 1 << k;
     r.start = best.start;
     r.dirs.assign(best.path, best.path + best.len);
     r.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();

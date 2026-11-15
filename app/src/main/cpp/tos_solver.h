@@ -100,6 +100,7 @@ struct Solution {
     int firstOrbs = 0;       // 首批消除的珠數
     int cleared = 0;         // 消除的珠數
     bool goalsMet = false;   // 所有關卡條件都達成
+    int unmetMask = 0;       // 沒做到的條件（第 k 位＝CondId k：0終點 1電擊 2Combo 3首消 4首消屬性 5NUM 6每組3顆 7首消剛好 8首消禁 9多屬性 10首消必消 11形狀 12盾 13同色組）
     int start = -1;          // 起點格（row * 6 + col）
     std::vector<int> dirs;   // 方向序列
     double ms = 0;
