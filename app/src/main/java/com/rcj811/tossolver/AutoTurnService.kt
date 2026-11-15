@@ -80,6 +80,16 @@ class AutoTurnService : AccessibilityService() {
     private var activePreset = -1           // 目前判斷出的關卡（-1 = 一般關卡）
     private var lastGoalsOk = true
     private var onlineLearned = 0        // 自我學習：累積但還沒存檔的顏色樣本數
+    /** 機制報告用：這一回合的截圖（只切盤面存小圖） */
+    private var reportFrame: Frame? = null
+    private fun report(type: String, title: String, info: Map<String, Any?> = emptyMap(), rec: Recognition? = null) {
+        val all = LinkedHashMap<String, Any?>()
+        all["條件"] = if (stage.isEmpty()) "（一般盤，沒有條件）" else stage.summary()
+        all["條件代碼"] = stage.serialize()
+        all.putAll(info)
+        if (rec != null) { all["盤面"] = MechReport.boardText(rec); all["認不出的格數"] = rec.unknownCount() }
+        MechReport.record(this, type, title, all, if (rec != null) reportFrame else null, if (settings.hasGeometry) settings.geometry else null)
+    }
     private var lastNoMove = false        // 上一次求解：整盤都不能碰
     private var lastActionAt = 0L     // 上次轉珠的時間
     private lateinit var model: ColorModel
@@ -114,6 +124,7 @@ class AutoTurnService : AccessibilityService() {
     private fun unstickBusy() {
         if (busy && !running && SystemClock.uptimeMillis() - busySince > 20_000) {
             TestHooks.log("忙碌卡住 ${(SystemClock.uptimeMillis() - busySince) / 1000} 秒，已自動解開")
+            report("忙碌卡住", "超過 20 秒沒有完成，已自動解開")
             busy = false
             updateBar()
         }
@@ -266,6 +277,21 @@ class AutoTurnService : AccessibilityService() {
                 val v = listOf(bar, calibRoot, stageRoot).flatMap { TestHooks.clickables(it) }.firstOrNull { TestHooks.label(it).startsWith(label) }
                 TestHooks.log(if (v != null) "點「${TestHooks.label(v)}」" else "找不到「$label」")
                 v?.performClick()
+            }
+            // 機制報告：匯出成 zip，列出內容檢查
+            "report" -> {
+                MechReport.record(this, "測試", "模擬器測試記錄", mapOf("說明" to "測試用"))
+                val f = java.io.File(cacheDir, "report-test.zip")
+                val t0 = SystemClock.uptimeMillis()
+                runCatching { MechReport.exportTo(this, android.net.Uri.fromFile(f)) }
+                    .onFailure { TestHooks.log("機制報告 匯出失敗 $it") }
+                val names = runCatching {
+                    java.util.zip.ZipFile(f).use { z -> z.entries().toList().map { "${it.name}(${it.size})" } }
+                }.getOrElse { listOf("讀不到 $it") }
+                TestHooks.log("機制報告 ${MechReport.size(this)} 筆，${SystemClock.uptimeMillis() - t0}ms：${names.joinToString(" ")}")
+                runCatching {
+                    java.util.zip.ZipFile(f).use { z -> z.getInputStream(z.getEntry("機制報告.txt")).bufferedReader().readText() }
+                }.getOrNull()?.lines()?.take(60)?.forEach { TestHooks.log("報告｜$it") }
             }
             // 匯出 → 匯入 → 再匯出，兩次內容要一樣（資料不會在備份還原時走樣）
             "backup" -> {
@@ -665,6 +691,21 @@ class AutoTurnService : AccessibilityService() {
 
     // ---------------- 讀取王的技能（OCR） ----------------
 
+    /** 技能卡內容記進機制報告：有不認識或要手動補充的技能最重要 */
+    private fun reportSkill(parse: SkillParser.Result, text: String?) {
+        val title = when {
+            !parse.found -> "沒讀到技能卡"
+            parse.unknown.isNotEmpty() -> "不認識的技能：" + parse.unknown.joinToString("、")
+            parse.manual.isNotEmpty() -> "要手動補充：" + parse.manual.joinToString("、")
+            else -> "技能：" + parse.skills.joinToString("、")
+        }
+        MechReport.record(this, "技能卡", title, linkedMapOf(
+            "技能" to parse.skills, "已自動設定" to parse.applied, "需要補充" to parse.manual,
+            "由符石辨識處理" to parse.byRecognition, "不影響轉珠" to parse.noEffect, "不認識" to parse.unknown,
+            "設定成的條件" to parse.rules.summary(), "讀到的文字" to (text ?: "（沒有文字）").take(2000),
+        ))
+    }
+
     /** 按「＋」讀到技能後：記住關卡（合併使用者畫過的格子） */
     private fun onBossRead(sig: FloatArray, parse: SkillParser.Result) {
         if (!parse.found) return
@@ -726,6 +767,7 @@ class AutoTurnService : AccessibilityService() {
             if (frame == null) { finishOnce(CAPTURE_FAIL); return@captureClean }
             val geo = settings.geometry
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
+            reportFrame = frame
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
             val unknown = rec.unknownCount()
             // 問號盤：整盤每格長得一樣（不管辨識認成什麼）一定先移一格看顏色；
@@ -738,9 +780,11 @@ class AutoTurnService : AccessibilityService() {
                 return@captureClean
             }
             if (unknown > geo.cells / 2) {
+                report("看不出盤面", "按「轉」時超過一半認不出來", rec = rec)
                 finishOnce("看不出盤面（$unknown 格無法辨識）。請在戰鬥中珠子靜止時再按，或按「校」重新校正；如果珠子被蓋成問號，到「關」打開「問號盤先移一格」")
                 return@captureClean
             }
+            if (unknown > 0) report("認不出的珠", "按「轉」時盤面有認不出的珠", rec = rec)
             noteUnknown(unknown)
             if (unknown > 0) toast("$unknown 格無法辨識（問號），路徑會避開它們；按橘色「校?」可以修正")
             val go = {
@@ -784,6 +828,7 @@ class AutoTurnService : AccessibilityService() {
     }
 
     private fun finishOnce(msg: String?) {
+        if (msg != null && msg != CAPTURE_FAIL) report("按「轉」沒轉成", msg)
         strictTurn = false
         busy = false
         updateBar()
@@ -972,7 +1017,11 @@ class AutoTurnService : AccessibilityService() {
         val hiddenNow = !dimmed && a.hidden
         val ready = !dimmed && !hiddenNow && unknown <= OrbRecognizer.maxUnknown(geo.cells)
         if (dimmed) status("動畫中（盤面變暗），等待下一回合…", important = false)
-        if (ready) { lastBoardAt = now; noteUnknown(unknown) }
+        if (ready) {
+            lastBoardAt = now
+            if (unknown > 0 && unknown != boardUnknown) { reportFrame = frame; report("認不出的珠", "自動轉珠時盤面有認不出的珠", rec = rec) }
+            noteUnknown(unknown)
+        }
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張
         val needStable = if (unknown > 0 && pending > 0) 3 else 2
         val alreadyDone = OrbRecognizer.sameMasked(board, lastActed) && now - lastActedAt < 5000
@@ -1005,6 +1054,7 @@ class AutoTurnService : AccessibilityService() {
                 captureClean { clean ->
                     if (!running) { busy = false; updateBar(); return@captureClean }
                     applyStageFor(clean ?: frame, geo)
+                    reportFrame = clean ?: frame
                     // 自動轉珠不會自己長按王讀技能卡（只有按「＋」才讀）
                     // NUM 盾數字每回合會變：每回合都重新讀敵人身上的數字
                     withNum(clean ?: frame, geo) num@{
@@ -1159,6 +1209,7 @@ class AutoTurnService : AccessibilityService() {
             val bad = stage.conflicts(cells, feasColors(rec))
             if (bad.isNotEmpty()) {
                 lastGoalsOk = false
+                report("條件衝突", bad.joinToString("；"), mapOf("衝突" to bad), rec)
                 alertManual("條件衝突，沒有轉珠：\n" + bad.joinToString("\n") { "・$it" } +
                     "\n解決：按「關」修改上面列出的條件（或用技能轉珠補足）後再按「完成」")
                 fail(false)
@@ -1193,14 +1244,21 @@ class AutoTurnService : AccessibilityService() {
                     if (pass != null && hasStage) toast("找不到符合條件、又能消出 combo 的路徑，這回合只移動一步結束（沒把握也不停住）")
                     if (pass == null) {
                         lastNoMove = true
+                        report("沒辦法轉", "整盤都不能碰", mapOf("求解" to "找不到路徑，連一步都不能動"), rec)
                         toast("盤面全部是不能碰的珠子，沒辦法轉。解決：用技能解除封鎖後再按「轉」；如果是認錯了，按「校」把珠子改回普通")
                         fail(false)
                         return@post
                     }
                     toast("這盤消不出 combo，移動一步結束回合")
+                    report("消不出combo", if (hasStage) "有條件時找不到能消的路徑" else "一般盤找不到能消的路徑", rec = rec)
                     res = pass
                 }
                 lastGoalsOk = !hasStage || res.goalsMet
+                if (!lastGoalsOk) report(
+                    if (stage.allMask != 0) "首消必消做不到" else "條件沒做到", stage.summary(),
+                    mapOf("combo" to res.combos, "首消combo" to res.firstCombos, "步數" to res.dirs.size, "起點" to res.start,
+                        "計算毫秒" to res.ms, "最多步數" to maxPath, "方向" to dirs, "問號盤" to (held != null),
+                        "嚴格（按完成）" to strictTurn), rec)
                 // 自我學習：記錄這關的遊玩結果（破盾成功 / 失敗），作為之後調整依據
                 if (presetIdx in presets.indices) {
                     val p = presets[presetIdx]
@@ -1367,6 +1425,7 @@ class AutoTurnService : AccessibilityService() {
                 busy = false
                 updateBar()
                 val parse = SkillParser.parse(text ?: "")
+                reportSkill(parse, text)
                 if (!parse.found) { toast("沒讀到王的技能卡。請先在遊戲裡長按王打開技能說明，再按「＋」"); return@read }
                 onBossRead(sig, parse)
                 val list = presetStore.load()
@@ -1411,6 +1470,7 @@ class AutoTurnService : AccessibilityService() {
                 updateBar()
                 val parse = SkillParser.parse(text ?: "")
                 if (parse.found) {
+                    reportSkill(parse, text)
                     onBossRead(sig, parse)
                     if (parse.manual.isNotEmpty()) toast("需要補充：${parse.manual.joinToString("、")}。關掉技能視窗後再按一次「關」")
                     return@read

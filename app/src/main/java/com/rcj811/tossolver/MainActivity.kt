@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_EXPORT = 41
         private const val REQ_IMPORT = 42
+        private const val REQ_REPORT = 43
     }
 
 
@@ -132,7 +133,7 @@ class MainActivity : Activity() {
             button("匯入資料（還原）") {
                 AlertDialog.Builder(this)
                     .setTitle("匯入資料")
-                    .setMessage("會用備份檔的資料「取代」目前所有學過的資料（顏色、符石類別、記住的關卡、校正位置、設定）。確定要匯入嗎？")
+                    .setMessage("會跟目前的資料比對：目前的資料都保留，備份裡沒有重複的才新增（顏色、符石類別、記住的關卡、校正位置、設定）。確定要匯入嗎？")
                     .setPositiveButton("選擇備份檔") { _, _ ->
                         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
@@ -143,6 +144,20 @@ class MainActivity : Activity() {
                     .show()
             },
         ))
+        // 機制報告：自轉珠處理不好的情況（條件沒做到、認不出的珠、不認識的技能…）匯出成 zip 交給開發者修改
+        reportBtn = button("匯出機制報告") {
+            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/zip"
+                putExtra(Intent.EXTRA_TITLE, MechReport.suggestedName())
+            }, REQ_REPORT)
+        }
+        root.addView(row(reportBtn!!, button("清除機制報告") {
+            AlertDialog.Builder(this).setTitle("清除機制報告")
+                .setMessage("清掉目前記錄的 ${MechReport.size(this)} 筆情況？（建議匯出交給開發者之後再清）")
+                .setPositiveButton("清除") { _, _ -> MechReport.clear(this); refreshAuto() }
+                .setNegativeButton("取消", null).show()
+        }))
         root.addView(button("管理學習資料（一筆一筆刪除設定錯的）") {
             OrbTypeDialog.showLearningData(this) { AutoTurnService.instance?.reloadModel(); refreshAuto() }
         })
@@ -228,6 +243,8 @@ class MainActivity : Activity() {
         refreshAuto()
     }
 
+    private var reportBtn: Button? = null
+
     override fun onResume() {
         super.onResume()
         refreshAuto()
@@ -243,6 +260,13 @@ class MainActivity : Activity() {
         when (requestCode) {
             REQ_EXPORT -> runCatching { DataBackup.exportTo(this, uri) }
                 .onSuccess { Toast.makeText(this, "已匯出全部資料。移除程式前請確認這個檔案還在", Toast.LENGTH_LONG).show() }
+                .onFailure { Toast.makeText(this, "匯出失敗：${it.message}", Toast.LENGTH_LONG).show() }
+            REQ_REPORT -> runCatching { MechReport.exportTo(this, uri) }
+                .onSuccess {
+                    AlertDialog.Builder(this).setTitle("已匯出機制報告")
+                        .setMessage("把這個 zip 檔交給開發者（例如上傳到對話裡），就能照著修改。\n報告只有盤面小圖和條件、技能文字，沒有帳號或隊伍資訊。")
+                        .setPositiveButton("好", null).show()
+                }
                 .onFailure { Toast.makeText(this, "匯出失敗：${it.message}", Toast.LENGTH_LONG).show() }
             REQ_IMPORT -> runCatching { DataBackup.mergeFrom(this, uri) }
                 .onSuccess { v ->
@@ -431,6 +455,7 @@ class MainActivity : Activity() {
     // ---------- 自動轉珠 ----------
 
     private fun refreshAuto() {
+        reportBtn?.text = "匯出機制報告（${MechReport.size(this)} 筆）"
         val on = AutoTurnService.isEnabled(this)
         val geo = settings.hasGeometry
         autoStatus.text = when {

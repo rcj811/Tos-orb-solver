@@ -125,6 +125,13 @@ cmd backup; sleep 3
 grep "備份測試" "$OUT/logcat.txt" | tail -1
 alive 備份
 
+say "7c. 機制報告"
+L1=$(wc -l < "$OUT/logcat.txt")
+cmd report; sleep 4
+tail -n +"$L1" "$OUT/logcat.txt" | grep "TOSTEST" | grep -E "機制報告|報告｜" | sed 's/.*TOSTEST[^:]*: //' | head -70
+if ! tail -n +"$L1" "$OUT/logcat.txt" | grep -q "機制報告.txt"; then echo "!!! 機制報告匯出失敗"; REPORT_FAIL=1; fi
+alive 機制報告
+
 say "8. 長時間自動轉珠（3 分鐘）"
 show normal1; cmd state
 cmd play
@@ -157,6 +164,7 @@ fi
 
 say "結果"
 grep -n "TOSTEST" "$OUT/logcat.txt" | tail -5
+if [ -n "${REPORT_FAIL:-}" ]; then echo "!!! 機制報告匯出失敗"; exit 1; fi
 if grep -q "備份測試 不一致" "$OUT/logcat.txt"; then echo "!!! 匯出匯入資料不一致"; exit 1; fi
 FATAL=$(grep -nE "FATAL EXCEPTION|Fatal signal|ANR in $PKG|$PKG.*has died|Process: $PKG" "$OUT/logcat.txt" | head -40)
 if [ -n "$FATAL" ]; then
