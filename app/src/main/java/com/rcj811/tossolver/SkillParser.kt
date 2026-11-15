@@ -68,8 +68,12 @@ object SkillParser {
         return m.groupValues[1].toInt().takeIf { it in 3..30 }
     }
 
+    /** 自轉珠自己畫面上的按鈕名稱（說明文字會用「」框起來），不是王的技能 */
+    private val OWN_UI = setOf("長按", "儲存並學習", "自動偵測", "關", "校", "轉", "完成", "＋", "+", "取消", "關閉", "清除全部",
+        "自轉珠", "選擇備份檔", "匯出資料", "匯入資料", "確定", "取代", "合併")
+
     fun extractSkills(norm: String): List<String> =
-        Regex("【([^【】]{2,24})】").findAll(norm).map { it.groupValues[1] }.distinct().toList()
+        Regex("【([^【】]{2,24})】").findAll(norm).map { it.groupValues[1] }.filter { it.trim() !in OWN_UI }.distinct().toList()
 
     private val MANUAL = listOf(
         "指定形狀盾" to "形狀盾（關掉技能視窗後按「關」，用筆刷畫出形狀）",

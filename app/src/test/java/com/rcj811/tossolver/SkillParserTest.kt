@@ -137,4 +137,11 @@ class SkillParserTest {
         assertEquals(2, r.rules.shapeMin)
         assertEquals(0, r.rules.shapeColor)
     }
+
+    @Test
+    fun ownDialogTextIsNotASkill() {
+        // 機制報告找到的：自轉珠自己的「新增符石類別」視窗被當成技能卡
+        val r = SkillParser.parse("新增符石類別\n新增後，到校正畫面「長按」那顆珠子選這個類別，再按「儲存並學習」，之後就會自動辨識。")
+        org.junit.Assert.assertFalse(r.found)
+    }
 }
