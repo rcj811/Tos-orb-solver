@@ -132,6 +132,7 @@ class AutoTurnService : AccessibilityService() {
     private var running = false
     private var lastSeen: IntArray? = null
     private var stableCount = 0
+    private var fallingSince = 0L
     private val CAPTURE_FAIL = "截圖失敗。解決：確認手機設定裡自轉珠的無障礙服務還開著；若剛關閉過，打開自轉珠 App 重新開啟"
     private var waitingSince = 0L    // 盤面看得到、但一直沒靜止的開始時間（有特效一直在動時，等太久就照樣轉）
     private var lastActed: IntArray? = null
@@ -779,6 +780,12 @@ class AutoTurnService : AccessibilityService() {
             if (forced != null) stage = StageRules().apply { copyFrom(forced) } else applyStageFor(frame, geo)
             reportFrame = frame
             val rec = OrbRecognizer.recognize(frame, geo, model, stateModel)
+            // 還在落珠（有空格或 Combo 字樣蓋住）：等一下再截（最多 3 秒）
+            if (tries < 6 && OrbRecognizer.unsettled(frame, geo, rec.gray).sum() > 0) {
+                if (tries == 0) status("落珠中，等珠子停好再轉…", important = false)
+                main.postDelayed({ onceShot(forced, tries + 1) }, 500)
+                return@captureClean
+            }
             // 幾乎整盤都認成不能碰（冰封／風化）：多半是攻擊動畫把盤面蓋暗了，等一下再截（最多 3 秒）
             val blocked = (0 until geo.cells).count { rec.states[it] == OrbState.LOCKED || rec.states[it] == OrbState.NO_TOUCH }
             if (tries < 6 && blocked >= geo.cells * 0.8f) {
@@ -865,7 +872,7 @@ class AutoTurnService : AccessibilityService() {
         if (busy) { toast("正在計算或轉珠，請等這一回合結束再按 ▶"); return }
         if (!checkReady()) return
         running = true
-        lastSeen = null; stableCount = 0; lastActed = null
+        lastSeen = null; stableCount = 0; lastActed = null; fallingSince = 0L
         turnsDone = 0
         lastScreen = null
         lumRef = 0f
@@ -986,6 +993,8 @@ class AutoTurnService : AccessibilityService() {
     private class Analysis(
         val rec: Recognition, val board: IntArray, val unknown: Int, val solveCells: IntArray,
         val lum: Float, val hidden: Boolean, val sig: FloatArray,
+        /** [空格數, 被 Combo 字樣蓋暗的格數]：大於 0＝還在落珠 */
+        val unsettled: IntArray,
     )
 
     private fun analyze(frame: Frame, geo: BoardGeometry): Analysis {
@@ -994,6 +1003,7 @@ class AutoTurnService : AccessibilityService() {
         return Analysis(
             rec, OrbRecognizer.maskedBoard(rec), rec.unknownCount(), cells,
             boardLum(frame, geo), looksHidden(frame, geo), screenSig(frame),
+            OrbRecognizer.unsettled(frame, geo, rec.gray),
         )
     }
 
@@ -1037,8 +1047,13 @@ class AutoTurnService : AccessibilityService() {
         if (dimmed) lastScreenChangeAt = now   // 動畫中：暫停秒數從頭算
         // 問號盤：每格長得一樣（問號珠可能被認成某種珠或 X）→ 不當成一般盤面，走「先移一格」
         val hiddenNow = !dimmed && a.hidden
-        val ready = !dimmed && !hiddenNow && unknown <= OrbRecognizer.maxUnknown(geo.cells)
+        // 消除後還在落珠（有空格，或 Combo 字樣蓋住盤面）：等停好再轉。等超過 3 秒就照轉（不確定時還是要轉）
+        val falling = !dimmed && !hiddenNow && a.unsettled.sum() > 0
+        if (falling) { if (fallingSince == 0L) fallingSince = now } else fallingSince = 0L
+        val fallWait = falling && now - fallingSince < 3000
+        val ready = !dimmed && !hiddenNow && !fallWait && unknown <= OrbRecognizer.maxUnknown(geo.cells)
         if (dimmed) status("動畫中（盤面變暗），等待下一回合…", important = false)
+        if (fallWait) status("落珠中，等珠子停好…", important = false)
         if (ready) {
             lastBoardAt = now
             if (unknown > 0 && unknown != boardUnknown) { reportFrame = frame; report("認不出的珠", "自動轉珠時盤面有認不出的珠", rec = rec) }
@@ -1057,6 +1072,7 @@ class AutoTurnService : AccessibilityService() {
             val waitedTooLong = now - waitingSince > 5000
             if (stableCount >= needStable || waitedTooLong) {
                 waitingSince = 0L
+                if (falling) { reportFrame = frame; report("落珠判斷", "等 3 秒盤面還像在落珠，照樣轉了", mapOf("空格" to a.unsettled[0], "被蓋暗" to a.unsettled[1]), rec) }
                 lumRef = lum   // 記住正常盤面的亮度（之後變暗＝動畫中）
                 lastActed = board
                 lastActedAt = now

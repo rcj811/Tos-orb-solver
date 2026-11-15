@@ -571,6 +571,43 @@ object OrbRecognizer {
     /** 自動執行時允許無法辨識的格子比例（這些格子求解時當障礙避開） */
     const val MAX_UNKNOWN_FRAC = 0.34f   // 認不出的格子在 1/3 以內就照樣轉（當障礙避開）
 
+    /**
+     * 盤面還沒停好（消除後落珠中）：
+     * - 空格：珠子消掉了還沒補上，看得到很暗的底色（珠子中心亮度都 ≥140，底色 30～70）
+     * - 被蓋暗：「xx Combo!!」字樣蓋在盤面上，那幾格比其他格暗很多（3 格以上才算）
+     *   （停好的盤面每格亮度都在中位數的 0.9 倍以上；被字樣蓋住的格子只剩 0.5～0.7 倍）
+     * 回傳 [空格數, 被蓋暗格數]。機制報告找到的：落珠中的空格會被認成冰封。
+     * 黑白盤面本來就有很暗的珠，不檢查（gray＝true 時一律當停好）。
+     */
+    fun unsettled(frame: Frame, geo: BoardGeometry, gray: Boolean = false): IntArray {
+        if (gray) return intArrayOf(0, 0)
+        val n = geo.cells
+        val br = FloatArray(n)
+        val r = geo.cell * 0.2f
+        val step = maxOf(1, (r / 6f).toInt())
+        for (i in 0 until n) {
+            val cx = geo.centerX(i); val cy = geo.centerY(i)
+            var sum = 0L; var cnt = 0
+            var y = (cy - r).toInt()
+            while (y <= (cy + r).toInt()) {
+                var x = (cx - r).toInt()
+                if (y in 0 until frame.height) while (x <= (cx + r).toInt()) {
+                    if (x in 0 until frame.width) {
+                        val p = frame.pixels[y * frame.width + x]
+                        sum += maxOf(p shr 16 and 0xFF, p shr 8 and 0xFF, p and 0xFF); cnt++
+                    }
+                    x += step
+                }
+                y += step
+            }
+            br[i] = if (cnt > 0) sum.toFloat() / cnt else 255f
+        }
+        val med = br.sortedArray()[n / 2]
+        var empty = 0; var shade = 0
+        for (b in br) if (b < 75f) empty++ else if (b < med * 0.75f) shade++
+        return intArrayOf(empty, if (shade >= 3) shade else 0)
+    }
+
     fun maxUnknown(cells: Int) = max(2, (cells * MAX_UNKNOWN_FRAC).toInt())
 
     /** 辨識結果轉成盤面（珠種＋狀態），無法辨識的格子記為 -1 */

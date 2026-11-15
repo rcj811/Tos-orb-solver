@@ -91,4 +91,30 @@ class RealBoardTest {
         assertEquals(1, m.protos.size)
         assertEquals(2, c.protos.size)
     }
+
+    /** 機制報告（使用者手機）找到的：消除後落珠中的盤面，空格被認成冰封 → 要判斷成「還沒停好」 */
+    @Test
+    fun cascadeBoardsAreUnsettled() {
+        val g = BoardGeometry(0f, 0f, 70f, 5)
+        for (n in 1..3) {
+            val u = OrbRecognizer.unsettled(load("cascade_$n.rgbz"), g)
+            println("cascade_$n 空格=${u[0]} 被蓋暗=${u[1]}")
+            assertTrue("cascade_$n 應該判斷成還沒停好", u[0] + u[1] > 0)
+        }
+    }
+
+    @Test
+    fun settledBoardsAreSettled() {
+        val cases = listOf(
+            "skin_board.rgbz" to geo, "frozen_board.rgbz" to geo,
+        )
+        for ((name, g) in cases) {
+            val u = OrbRecognizer.unsettled(load(name), g)
+            println("$name 空格=${u[0]} 被蓋暗=${u[1]}")
+            assertEquals("$name 是停好的盤面", 0, u[0] + u[1])
+        }
+        // 黑白盤面（本來就有很暗的珠）不檢查
+        val bw = load("bw_board.rgbz"); val bg = BoardGeometry(3f, 2f, 181f, 5)
+        assertEquals(0, OrbRecognizer.unsettled(bw, bg, gray = ShapeMatcher.isGray(bw, bg)).sum())
+    }
 }
