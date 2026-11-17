@@ -79,4 +79,29 @@ class ShapeMatcherTest {
         val r = ShapeMatcher.recognize(f, geo, listOf(3 to base.shapes[0]))
         assertEquals(3, r.colors[0])
     }
+
+    /** 「全盤清除」：每種珠只標一顆，其他格只照標的判斷（不用內建範本） */
+    @Test
+    fun scratchModeUsesOnlyMarkedOrbs() {
+        val f = load("bw_board.rgbz")
+        val geo = BoardGeometry(0f, 0f, 180f, 5)
+        val base = ShapeMatcher.recognize(f, geo)
+        val marks = (0 until 6).mapNotNull { c -> (0 until 30).firstOrNull { truth[it] == c } }
+        val extra = marks.map { truth[it] to base.shapes[it] }
+        val r = ShapeMatcher.recognize(f, geo, extra, scratch = true)
+        val ok = (0 until 30).count { r.colors[it] == truth[it] }
+        println("全盤清除後每種標一顆（${marks.size} 顆）：$ok/30 正確")
+        assertTrue("每種標一顆就要幾乎全對 $ok/30", ok >= 28)
+        // 只標了火：沒標過的顏色不會被選到
+        val onlyFire = ShapeMatcher.recognize(f, geo, extra.filter { it.first == 0 }, scratch = true)
+        assertTrue((0 until 30).all { onlyFire.colors[it] == 0 })
+        // 教過的顏色以使用者的為準：故意把水的樣子教成火 → 原本的水會變火（證明不再被內建範本蓋過）
+        val water = (0 until 30).first { truth[it] == 1 }
+        ShapeMatcher.learned.clear()
+        ShapeMatcher.learned.add(0 to base.shapes[water])
+        try {
+            val r2 = ShapeMatcher.recognize(f, geo)
+            assertEquals(0, r2.colors[water])
+        } finally { ShapeMatcher.learned.clear() }
+    }
 }

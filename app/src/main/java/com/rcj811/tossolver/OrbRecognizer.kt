@@ -443,10 +443,12 @@ object OrbRecognizer {
     fun recognize(
         frame: Frame, geo: BoardGeometry, model: ColorModel, stateModel: StateModel? = null,
         extraShapes: List<Pair<Int, FloatArray>> = emptyList(), allowShape: Boolean = true,
+        /** 「全盤清除」後：黑白盤面只用這次標的珠判斷 */
+        shapeScratch: Boolean = false,
     ): Recognition {
         val n = geo.cells
         // 黑白盤面（黑白符石）：顏色沒有意義，改用符石形狀邊緣判斷
-        val sr = if (allowShape && ShapeMatcher.isGray(frame, geo)) runCatching { ShapeMatcher.recognize(frame, geo, extraShapes) }.getOrNull() else null
+        val sr = if (allowShape && ShapeMatcher.isGray(frame, geo)) runCatching { ShapeMatcher.recognize(frame, geo, extraShapes, shapeScratch) }.getOrNull() else null
         if (sr != null) {
             val states = IntArray(n)
             val descs = if (stateModel != null) Array(n) { stateDescriptor(frame, geo, it) } else null

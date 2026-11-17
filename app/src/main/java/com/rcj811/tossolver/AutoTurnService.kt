@@ -1807,6 +1807,7 @@ class AutoTurnService : AccessibilityService() {
         rowA.addView(btn("自動偵測") { autoDetectInCalibration() }, wlp())
         rowA.addView(btn("列數 ${startGeo.rows}") { b -> cycleRows(b) }, wlp())
         rowA.addView(btn("重新截圖") { recaptureCalibration() }, wlp())
+        rowA.addView(btn("全盤清除") { clearCalibrationBoard() }, wlp())
         rowB.addView(btn("＋類別") {
             OrbTypeDialog.showAdd(this, overlay = true) { t -> toast("已新增「${t.name}」：長按格子切換到它") }
         }, wlp())
@@ -1841,6 +1842,19 @@ class AutoTurnService : AccessibilityService() {
     // 校正畫面的辨識在背景執行緒做（點珠子、拖格線不卡）；只套用最新一次的結果
     private var calibSeq = 0
     private var calibBase: Recognition? = null   // 沒改任何珠子時的辨識結果（格線不變就不用重算）
+    /** 「全盤清除」後：只照使用者這次標的珠判斷其他格（不用內建範本、不用以前學的） */
+    private var calibScratch = false
+
+    /** 全盤清除：每格都變成未判斷，使用者每種珠標一顆，其他格只照標的判斷 */
+    private fun clearCalibrationBoard() {
+        val v = calibView ?: return
+        calibScratch = true
+        calibSeq++   // 丟掉還在算的舊結果
+        v.resetLabels()
+        v.invalidate()
+        updateCalibInfo()
+        calibInfo?.text = "已全盤清除。每種珠點一顆設成正確顏色（點＝換顏色，長按＝換狀態，例如冰封），其他格子會照你標的自動判斷；都對了再按「儲存並學習」。"
+    }
 
     private fun recognizeInCalibration() {
         val v = calibView ?: return
@@ -1848,6 +1862,7 @@ class AutoTurnService : AccessibilityService() {
         val geo = v.geo
         val seq = ++calibSeq
         calibBase = null
+        calibScratch = false
         runCatching {
             shotExec.execute {
                 val rec = runCatching { OrbRecognizer.recognize(f, geo, model, stateModel) }.getOrNull() ?: return@execute
@@ -1879,6 +1894,8 @@ class AutoTurnService : AccessibilityService() {
         // 點擊當下的標記先拷貝一份給背景用（使用者可能一直點）
         val labels = v.labels.copyOf(); val edited = v.edited.copyOf(); val states = v.states.copyOf()
         val stateEdited = v.stateEdited.copyOf()
+        val scratch = calibScratch
+        if (scratch && edited.none { it } && stateEdited.none { it }) return
         val cachedBase = calibBase
         runCatching {
             shotExec.execute {
@@ -1891,12 +1908,12 @@ class AutoTurnService : AccessibilityService() {
                         else work.addProto(base.features[i], labels[i])
                     }
                     // 改過狀態的格子（例如把「冰」改回普通）也當範例：長得一樣的格子跟著更新
-                    val ws = stateModel.copy()
+                    val ws = if (scratch) StateModel() else stateModel.copy()
                     base.stateDesc?.let { sd ->
                         val idx = (0 until geo.cells).filter { stateEdited[it] }
                         if (idx.isNotEmpty()) ws.learn(idx.map { sd[it] }, idx.map { states[it] }, gray = base.shapes != null)
                     }
-                    OrbRecognizer.recognize(f, geo, work, ws, extra)
+                    OrbRecognizer.recognize(f, geo, work, ws, extra, shapeScratch = scratch)
                 }.getOrNull() ?: return@execute
                 main.post {
                     if (seq != calibSeq || calibView !== v || v.geo != geo) return@post
@@ -1974,6 +1991,12 @@ class AutoTurnService : AccessibilityService() {
         settings.geometry = v.geo
         // 學習：使用者修正過的格子，加上原本就有信心的格子
         val rec = OrbRecognizer.recognize(f, v.geo, model, stateModel)
+        // 「全盤清除」後儲存（黑白盤面）：以這次標的為準，換掉以前學過的同顏色形狀和黑白狀態
+        if (calibScratch && rec.shapes != null) {
+            val marked = (0 until v.geo.cells).filter { v.edited[it] && v.labels[it] in 0..5 }.map { v.labels[it] }.toSet()
+            for (c in marked) shapeStore.clear(c)
+            stateModel.grayProtos.clear(); stateModel.grayLabels.clear()
+        }
         val feats = ArrayList<FloatArray>()
         val labels = ArrayList<Int>()
         val sDescs = ArrayList<FloatArray>()

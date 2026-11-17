@@ -125,11 +125,16 @@ object ShapeMatcher {
         return s
     }
 
-    /** 每種珠的分數：範本與學過的形狀取最高 */
-    private fun scores(d: FloatArray, extra: List<Pair<Int, FloatArray>>): FloatArray {
-        val sc = FloatArray(6) { dot(d, templates[it]) }
-        for ((c, p) in learned) if (c in 0..5) sc[c] = max(sc[c], dot(d, p))
-        for ((c, p) in extra) if (c in 0..5) sc[c] = max(sc[c], dot(d, p))
+    /**
+     * 每種珠的分數。使用者教過的顏色：只用使用者教的形狀（使用者的珠子樣式為準，不再和內建範本比）；
+     * 沒教過的顏色才用內建範本。scratch＝「全盤清除」後：只用這次標的珠，沒標過的顏色不會被選到。
+     */
+    private fun scores(d: FloatArray, extra: List<Pair<Int, FloatArray>>, scratch: Boolean = false): FloatArray {
+        val sc = FloatArray(6) { -1f }
+        val has = BooleanArray(6)
+        if (!scratch) for ((c, p) in learned) if (c in 0..5) { has[c] = true; sc[c] = max(sc[c], dot(d, p)) }
+        for ((c, p) in extra) if (c in 0..5) { has[c] = true; sc[c] = max(sc[c], dot(d, p)) }
+        if (!scratch) for (c in 0 until 6) if (!has[c]) sc[c] = dot(d, templates[c])
         return sc
     }
 
@@ -142,7 +147,7 @@ object ShapeMatcher {
     private val SAMPLE = intArrayOf(0, 2, 5, 7, 9, 13, 16, 20, 22, 24, 27, 29, 31, 34, 38, 41, 45, 47)
 
     @Synchronized
-    fun recognize(frame: Frame, geo: BoardGeometry, extra: List<Pair<Int, FloatArray>> = emptyList()): Result {
+    fun recognize(frame: Frame, geo: BoardGeometry, extra: List<Pair<Int, FloatArray>> = emptyList(), scratch: Boolean = false): Result {
         val s0 = geo.cell
         val mx = (s0 * 0.6f).toInt()
         val ix = (geo.left - mx).toInt(); val iy = (geo.top - mx).toInt()
@@ -207,7 +212,7 @@ object ShapeMatcher {
             describe(ig, (bl + (i % 6) * bs).toInt(), (bt + (i / 6) * bs).toInt(), bs.toInt())
         }
         for (i in 0 until n) {
-            val sc = scores(shapes[i], extra)
+            val sc = scores(shapes[i], extra, scratch)
             var a = 0
             for (k in 1 until 6) if (sc[k] > sc[a]) a = k
             var b2 = -1f
