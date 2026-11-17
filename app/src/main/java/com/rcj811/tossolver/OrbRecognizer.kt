@@ -122,7 +122,11 @@ object OrbTypes {
  * 符石狀態的學習模型：與顏色無關的描述子（飽和度、亮度、亮白、偏暗…）＋最近原型。
  * 模擬驗證：只標註一盤，新盤面的狀態正確率約 96%。
  */
-class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: MutableList<Int> = ArrayList()) {
+class StateModel(
+    val protos: MutableList<FloatArray> = ArrayList(), val labels: MutableList<Int> = ArrayList(),
+    /** 黑白盤面另外學的樣子（黑白珠沒有顏色，和彩色盤面的樣子完全不同，不能混在一起） */
+    val grayProtos: MutableList<FloatArray> = ArrayList(), val grayLabels: MutableList<Int> = ArrayList(),
+) {
     companion object {
         const val DIM = 7
         const val MATCH = 0.25f
@@ -133,6 +137,11 @@ class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: 
     }
 
     val isEmpty: Boolean get() = protos.isEmpty()
+
+    fun copy() = StateModel(
+        protos.map { it.copyOf() }.toMutableList(), labels.toMutableList(),
+        grayProtos.map { it.copyOf() }.toMutableList(), grayLabels.toMutableList(),
+    )
 
     private fun dist(a: FloatArray, b: FloatArray): Float {
         var d = 0f
@@ -145,20 +154,28 @@ class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: 
      *  已學過足夠的普通珠 → NOVEL（不像普通珠也不像學過的特殊珠 → 呼叫端當障礙避開，寧可少消也不要碰到不能碰的珠）
      *  否則 → -1（當普通珠）
      * 模擬（12 種標註盤 × 10 盤）：不能碰的珠被當成可碰 26% → 1.1%，普通珠被誤當障礙 0.8%。
+     *
+     * gray＝黑白盤面：只用黑白盤面學過的樣子；沒學過或都不像 → -1（普通珠）。
+     * （機制報告找到的：彩色盤面學的「冰封」樣子會把黑底的黑白珠全部認成冰封）
      */
-    fun classify(d: FloatArray): Int {
+    fun classify(d: FloatArray, gray: Boolean = false): Int {
+        val ps = if (gray) grayProtos else protos
+        val ls = if (gray) grayLabels else labels
         var best = -1
         var bd = Float.MAX_VALUE
-        for (i in protos.indices) {
-            val x = dist(d, protos[i])
+        for (i in ps.indices) {
+            val x = dist(d, ps[i])
             if (x < bd) { bd = x; best = i }
         }
-        if (best >= 0 && bd < MATCH) return labels[best]
+        if (best >= 0 && bd < MATCH) return ls[best]
+        if (gray) return -1
         return if (labels.count { it == OrbState.NORMAL } >= MIN_NORMAL_FOR_NOVELTY) NOVEL else -1
     }
 
-    /** 學習標註好的格子；回傳新增或更新的原型數 */
-    fun learn(descs: List<FloatArray>, states: List<Int>): Int {
+    /** 學習標註好的格子；回傳新增或更新的原型數。gray＝黑白盤面的樣子另外存 */
+    fun learn(descs: List<FloatArray>, states: List<Int>, gray: Boolean = false): Int {
+        val ps = if (gray) grayProtos else protos
+        val ls = if (gray) grayLabels else labels
         var n = 0
         for (k in descs.indices) {
             val st = states[k]
@@ -166,20 +183,28 @@ class StateModel(val protos: MutableList<FloatArray> = ArrayList(), val labels: 
             val d = descs[k]
             var near = -1
             var nd = Float.MAX_VALUE
-            for (i in protos.indices) if (labels[i] == st) {
-                val x = dist(d, protos[i]); if (x < nd) { nd = x; near = i }
+            for (i in ps.indices) if (ls[i] == st) {
+                val x = dist(d, ps[i]); if (x < nd) { nd = x; near = i }
             }
             if (near >= 0 && nd < MERGE) {
-                for (j in 0 until DIM) protos[near][j] = (protos[near][j] + d[j]) / 2f
+                for (j in 0 until DIM) ps[near][j] = (ps[near][j] + d[j]) / 2f
             } else {
-                protos.add(d.copyOf()); labels.add(st)
-                if (labels.count { it == st } > MAX_PER_STATE) {
-                    val drop = labels.indexOf(st); protos.removeAt(drop); labels.removeAt(drop)
+                ps.add(d.copyOf()); ls.add(st)
+                if (ls.count { it == st } > MAX_PER_STATE) {
+                    val drop = ls.indexOf(st); ps.removeAt(drop); ls.removeAt(drop)
                 }
             }
             n++
         }
         return n
+    }
+
+    /** 刪掉某類別的樣子（彩色、黑白都刪） */
+    fun without(id: Int): StateModel {
+        val k = labels.indices.filter { labels[it] != id }
+        val g = grayLabels.indices.filter { grayLabels[it] != id }
+        return StateModel(k.map { protos[it] }.toMutableList(), k.map { labels[it] }.toMutableList(),
+            g.map { grayProtos[it] }.toMutableList(), g.map { grayLabels[it] }.toMutableList())
     }
 }
 
@@ -425,9 +450,10 @@ object OrbRecognizer {
         if (sr != null) {
             val states = IntArray(n)
             val descs = if (stateModel != null) Array(n) { stateDescriptor(frame, geo, it) } else null
-            if (stateModel != null && !stateModel.isEmpty && descs != null) for (i in 0 until n) {
-                val st = stateModel.classify(descs[i])
-                states[i] = if (st >= 0) st else OrbState.NORMAL   // 黑白珠樣子都「沒見過」，不當障礙
+            // 黑白盤面只用黑白盤面學過的樣子判斷狀態；沒學過＝全部當普通珠
+            if (stateModel != null && descs != null) for (i in 0 until n) {
+                val st = stateModel.classify(descs[i], gray = true)
+                states[i] = if (st >= 0) st else OrbState.NORMAL
             }
             return Recognition(geo.rows, sr.colors, sr.confidence, Array(n) { FloatArray(3) }, states, descs, sr.shapes)
         }

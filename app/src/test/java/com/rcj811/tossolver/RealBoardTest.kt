@@ -117,4 +117,34 @@ class RealBoardTest {
         val bw = load("bw_board.rgbz"); val bg = BoardGeometry(3f, 2f, 181f, 5)
         assertEquals(0, OrbRecognizer.unsettled(bw, bg, gray = ShapeMatcher.isGray(bw, bg)).sum())
     }
+
+    /**
+     * 使用者回報：黑白盤面黑底的珠全部被認成「冰」。
+     * 彩色盤面學過的冰封樣子（低飽和）不能拿來判斷黑白盤面；黑白盤面要另外學，而且改一顆、長得像的跟著改。
+     */
+    @Test
+    fun grayBoardStatesUseOwnSamples() {
+        val f = load("bw_board.rgbz"); val g = BoardGeometry(3f, 2f, 181f, 5)
+        val model = ColorModel.defaults()
+        // 先拿這盤的樣子當成「彩色盤面學過的冰封」：舊版會整盤都認成冰
+        val probe = OrbRecognizer.recognize(f, g, model, StateModel())
+        assertTrue("應該是黑白盤面", probe.gray)
+        val sm = StateModel()
+        sm.learn(probe.stateDesc!!.toList(), List(g.cells) { OrbState.LOCKED })
+        sm.learn(List(5) { FloatArray(StateModel.DIM) { 0.9f } }, List(5) { OrbState.NORMAL })
+        val r1 = OrbRecognizer.recognize(f, g, model, sm)
+        assertEquals("彩色盤面學的冰封不影響黑白盤面", 0, r1.states.count { it != OrbState.NORMAL })
+        // 在黑白盤面把第 0 格標成冰封：長得一樣的格子跟著變冰，其他維持普通
+        val sm2 = sm.copy()
+        sm2.learn(listOf(probe.stateDesc!![0]), listOf(OrbState.LOCKED), gray = true)
+        val r2 = OrbRecognizer.recognize(f, g, model, sm2)
+        assertEquals(OrbState.LOCKED, r2.states[0])
+        println("黑白盤面標一顆冰封後：${r2.states.count { it == OrbState.LOCKED }} 格冰封")
+        assertTrue(r2.states.count { it == OrbState.LOCKED } < g.cells)
+        // 再標一顆普通：之後長得像它的都回到普通
+        val normalIdx = (0 until g.cells).first { r2.states[it] == OrbState.LOCKED && it != 0 }.let { it }
+        sm2.learn(listOf(probe.stateDesc!![normalIdx]), listOf(OrbState.NORMAL), gray = true)
+        val r3 = OrbRecognizer.recognize(f, g, model, sm2)
+        assertEquals(OrbState.NORMAL, r3.states[normalIdx])
+    }
 }

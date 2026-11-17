@@ -1878,6 +1878,7 @@ class AutoTurnService : AccessibilityService() {
         val seq = ++calibSeq
         // 點擊當下的標記先拷貝一份給背景用（使用者可能一直點）
         val labels = v.labels.copyOf(); val edited = v.edited.copyOf(); val states = v.states.copyOf()
+        val stateEdited = v.stateEdited.copyOf()
         val cachedBase = calibBase
         runCatching {
             shotExec.execute {
@@ -1889,7 +1890,13 @@ class AutoTurnService : AccessibilityService() {
                         if (base.shapes != null) extra.add(labels[i] to base.shapes[i])   // 黑白盤面：用形狀當範例
                         else work.addProto(base.features[i], labels[i])
                     }
-                    OrbRecognizer.recognize(f, geo, work, stateModel, extra)
+                    // 改過狀態的格子（例如把「冰」改回普通）也當範例：長得一樣的格子跟著更新
+                    val ws = stateModel.copy()
+                    base.stateDesc?.let { sd ->
+                        val idx = (0 until geo.cells).filter { stateEdited[it] }
+                        if (idx.isNotEmpty()) ws.learn(idx.map { sd[it] }, idx.map { states[it] }, gray = base.shapes != null)
+                    }
+                    OrbRecognizer.recognize(f, geo, work, ws, extra)
                 }.getOrNull() ?: return@execute
                 main.post {
                     if (seq != calibSeq || calibView !== v || v.geo != geo) return@post
@@ -1996,8 +2003,10 @@ class AutoTurnService : AccessibilityService() {
         val used = model.learn(feats, labels)
         colorStore.save(model, used)
         // 只有標過特殊狀態（或已經學過）才建立狀態模型，避免只學普通珠時把怪樣子都歸成普通
-        val anySpecial = sLabels.any { it != OrbState.NORMAL } || stateModel.labels.any { it != OrbState.NORMAL }
-        val sUsed = if (anySpecial) stateModel.learn(sDescs, sLabels) else 0
+        // 黑白盤面：狀態一律另外學（黑白珠和彩色珠長得完全不同），普通珠也要學，之後才分得出來
+        val isGray = rec.shapes != null
+        val anySpecial = isGray || sLabels.any { it != OrbState.NORMAL } || stateModel.labels.any { it != OrbState.NORMAL }
+        val sUsed = if (anySpecial) stateModel.learn(sDescs, sLabels, gray = isGray) else 0
         if (anySpecial) colorStore.saveStates(stateModel)
         val special = sLabels.count { it != OrbState.NORMAL }
         toast("已儲存盤面位置，學習了 $used 格顏色" + (if (special > 0) "、$special 格特殊符石" else if (sUsed > 0) "、更新符石狀態" else "") +

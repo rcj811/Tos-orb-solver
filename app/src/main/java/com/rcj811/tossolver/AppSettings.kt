@@ -245,7 +245,9 @@ class ColorStore(context: Context) {
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
                 val d = o.getString("d").split(',').map { it.toFloat() }.toFloatArray()
-                if (d.size == StateModel.DIM) { m.protos.add(d); m.labels.add(o.getInt("s")) }
+                if (d.size != StateModel.DIM) continue
+                if (o.optInt("g") == 1) { m.grayProtos.add(d); m.grayLabels.add(o.getInt("s")) }
+                else { m.protos.add(d); m.labels.add(o.getInt("s")) }
             }
         }
         return m
@@ -258,6 +260,11 @@ class ColorStore(context: Context) {
                 .put("s", m.labels[i])
                 .put("d", m.protos[i].joinToString(",") { String.format(java.util.Locale.US, "%.4f", it) }))
         }
+        for (i in m.grayProtos.indices) {   // 黑白盤面的樣子另外標記
+            arr.put(org.json.JSONObject()
+                .put("s", m.grayLabels[i]).put("g", 1)
+                .put("d", m.grayProtos[i].joinToString(",") { String.format(java.util.Locale.US, "%.4f", it) }))
+        }
         sp.edit().putString("states", arr.toString()).apply()
     }
 
@@ -265,7 +272,7 @@ class ColorStore(context: Context) {
     fun stateSummary(): String {
         val m = loadStates()
         val parts = OrbTypes.all().filter { it.id != OrbState.NORMAL }.mapNotNull { t ->
-            val n = m.labels.count { it == t.id }
+            val n = m.labels.count { it == t.id } + m.grayLabels.count { it == t.id }
             if (n > 0) "${t.name} $n" else null
         }
         return if (parts.isEmpty()) "尚未學習特殊符石" else "已學特殊符石：" + parts.joinToString("、")
@@ -286,13 +293,11 @@ class ColorStore(context: Context) {
     }
 
     /** 每種符石類別學過幾個樣子 */
-    fun stateCount(id: Int): Int = loadStates().labels.count { it == id }
+    fun stateCount(id: Int): Int = loadStates().let { m -> m.labels.count { it == id } + m.grayLabels.count { it == id } }
 
     /** 刪除某類別學過的樣子 */
     fun forgetState(id: Int) {
-        val m = loadStates()
-        val keep = m.labels.indices.filter { m.labels[it] != id }
-        saveStates(StateModel(keep.map { m.protos[it] }.toMutableList(), keep.map { m.labels[it] }.toMutableList()))
+        saveStates(loadStates().without(id))
     }
 
     fun reset() = sp.edit().clear().apply()
