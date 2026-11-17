@@ -133,6 +133,10 @@ class AutoTurnService : AccessibilityService() {
     private var lastSeen: IntArray? = null
     private var stableCount = 0
     private var fallingSince = 0L
+    private var lastGrayReported: IntArray? = null
+    /** 黑白盤面每格的形狀比對信心（0～99），排成盤面 */
+    private fun grayConf(rec: Recognition): String =
+        (0 until rec.rows).joinToString("\n") { r -> (0 until 6).joinToString(" ") { x -> "%2d".format((rec.confidence[r * 6 + x] * 99).toInt().coerceIn(0, 99)) } }
     private val CAPTURE_FAIL = "截圖失敗。解決：確認手機設定裡自轉珠的無障礙服務還開著；若剛關閉過，打開自轉珠 App 重新開啟"
     private var waitingSince = 0L    // 盤面看得到、但一直沒靜止的開始時間（有特效一直在動時，等太久就照樣轉）
     private var lastActed: IntArray? = null
@@ -1047,16 +1051,25 @@ class AutoTurnService : AccessibilityService() {
         if (dimmed) lastScreenChangeAt = now   // 動畫中：暫停秒數從頭算
         // 問號盤：每格長得一樣（問號珠可能被認成某種珠或 X）→ 不當成一般盤面，走「先移一格」
         val hiddenNow = !dimmed && a.hidden
+        // 不是盤面畫面（讀取畫面、主選單…）：一半以上的格子是暗的底色，或幾乎整盤認成不能碰 → 不轉、不記報告
+        val blockedCells = (0 until geo.cells).count { rec.states[it] == OrbState.LOCKED || rec.states[it] == OrbState.NO_TOUCH }
+        val notBoard = !rec.gray && (a.unsettled[0] >= geo.cells / 2 || blockedCells >= geo.cells * 0.9f)
+        if (notBoard) status("不是盤面畫面，等待中…", important = false)
         // 消除後還在落珠（有空格，或 Combo 字樣蓋住盤面）：等停好再轉。等超過 3 秒就照轉（不確定時還是要轉）
-        val falling = !dimmed && !hiddenNow && a.unsettled.sum() > 0
+        val falling = !dimmed && !hiddenNow && !notBoard && a.unsettled.sum() > 0
         if (falling) { if (fallingSince == 0L) fallingSince = now } else fallingSince = 0L
         val fallWait = falling && now - fallingSince < 3000
-        val ready = !dimmed && !hiddenNow && !fallWait && unknown <= OrbRecognizer.maxUnknown(geo.cells)
+        val ready = !dimmed && !hiddenNow && !notBoard && !fallWait && unknown <= OrbRecognizer.maxUnknown(geo.cells)
         if (dimmed) status("動畫中（盤面變暗），等待下一回合…", important = false)
         if (fallWait) status("落珠中，等珠子停好…", important = false)
         if (ready) {
             lastBoardAt = now
             if (unknown > 0 && unknown != boardUnknown) { reportFrame = frame; report("認不出的珠", "自動轉珠時盤面有認不出的珠", rec = rec) }
+            if (rec.gray && !rec.colors.contentEquals(lastGrayReported)) {
+                lastGrayReported = rec.colors.copyOf()
+                reportFrame = frame
+                report("黑白盤面", "黑白盤面辨識結果", mapOf("每格信心" to grayConf(rec), "認不出" to unknown), rec)
+            }
             noteUnknown(unknown)
         }
         // 全部認得出來（沒有問號）→ 連續兩張一樣就馬上轉；有認不出的格子又有現成三連時多確認一張

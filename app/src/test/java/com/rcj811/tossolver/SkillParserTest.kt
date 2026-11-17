@@ -144,4 +144,17 @@ class SkillParserTest {
         val r = SkillParser.parse("新增符石類別\n新增後，到校正畫面「長按」那顆珠子選這個類別，再按「儲存並學習」，之後就會自動辨識。")
         org.junit.Assert.assertFalse(r.found)
     }
+
+    @Test
+    fun blackWhiteSkillIsHandledByRecognition() {
+        // 機制報告（使用者手機）讀到的技能卡
+        val r = SkillParser.parse("K沉潛斑翼·約菲\n【移形換影】\n敵人會令召喚師無法看透符石的本質\n【水連撃零化】\n首批消除水符石\n①該回合全隊攻擊カ變0")
+        org.junit.Assert.assertTrue(r.found)
+        org.junit.Assert.assertTrue(r.unknown.isEmpty())
+        org.junit.Assert.assertTrue(r.byRecognition.any { it.contains("移形換影") })
+        org.junit.Assert.assertEquals(1 shl 1, r.rules.antiMask)
+        // 沒看過的名稱，只要說明寫「看透符石」也算黑白
+        val r2 = SkillParser.parse("【幻象迷蹤】\n敵人會令召喚師無法看透符石的本質")
+        org.junit.Assert.assertTrue(r2.unknown.isEmpty())
+    }
 }

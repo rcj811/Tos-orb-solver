@@ -88,7 +88,7 @@ object SkillParser {
         "黏腐之地" to "黏腐之地",
         "幻界" to "幻界",
     )
-    private val BY_RECOGNITION = listOf("電擊", "觸電", "風化", "凍結", "冰封", "石化", "化血", "引爆", "弱化", "邪霧", "隱藏", "枯藤", "泡沫", "泡沬", "黑白")
+    private val BY_RECOGNITION = listOf("電擊", "觸電", "風化", "凍結", "冰封", "石化", "化血", "引爆", "弱化", "邪霧", "隱藏", "枯藤", "泡沫", "泡沬", "黑白", "移形換影")
     private val NO_EFFECT = listOf(
         "攻前盾", "終結倒數", "倒數", "疲憊", "意志", "減傷", "自我回復", "回復", "攻擊力提升", "攻擊提升", "防禦",
         "技能封鎖", "技能鎖", "封鎖", "反擊", "一擊必殺", "血鐮", "中毒", "吸收", "增傷", "召喚", "延遲", "即死",
@@ -157,6 +157,8 @@ object SkillParser {
             if (!hit && s.contains("黏腐之軌")) { r.sticky = true; ok("黏腐之軌（路徑不重複）") }
             if (!hit && s.contains("燃燒之軌")) { r.firePath = true; ok("燃燒之軌（不重踩）") }
             if (!hit) MANUAL.firstOrNull { s.contains(it.first) }?.let { manual.add(it.second); hit = true }
+            // 技能名稱不認識，但說明寫「無法看透符石的本質」＝黑白符石（用形狀辨識）
+            if (!hit && Regex("【" + Regex.escape(s) + "】[^【]{0,30}看透符石").containsMatchIn(norm)) { byRec.add(s); hit = true }
             if (!hit && BY_RECOGNITION.any { s.contains(it) }) {
                 byRec.add(s); hit = true
                 // 電擊／觸電符石：被閃電特效蓋住、認不出來的珠，當成電擊符石（不碰、必須消）

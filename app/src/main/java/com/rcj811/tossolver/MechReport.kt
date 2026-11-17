@@ -20,7 +20,7 @@ import java.util.zip.ZipOutputStream
  * 沒辦法轉、拖曳中斷…）時自動記下來。使用者在 App 按「匯出機制報告」得到一個 zip，交給開發者就能照著修改。
  *
  * - 只存盤面區域的小圖（不含隊伍、帳號等玩家資訊）
- * - 同一種情況（同類型＋同標題）只完整記前 3 次，之後只累計次數，不會越存越大
+ * - 同一種情況（同類型＋同標題）只留最新的 3 筆細節，其餘只累計次數，不會越存越大
  * - 寫檔在背景執行緒，不影響轉珠速度
  */
 object MechReport {
@@ -106,7 +106,17 @@ object MechReport {
         counts.put(key, JSONObject().put("type", type).put("title", title).put("n", n + 1)
             .put("first", counts.optJSONObject(key)?.optString("first") ?: time).put("last", time))
         countsFile.writeText(counts.toString())
-        if (n >= FULL_PER_KEY) return   // 同一種情況已經記夠了，只累計次數
+        val ev = File(d, EVENTS)
+        // 同一種情況只留「最新的」3 筆：超過就把最舊的那筆（和它的盤面圖）刪掉，換成這次的
+        if (n >= FULL_PER_KEY && ev.exists()) {
+            val lines = ev.readLines().filter { it.isNotBlank() }.toMutableList()
+            val idx = lines.indexOfFirst { runCatching { JSONObject(it).let { o -> o.optString("type") == type && o.optString("title") == title } }.getOrDefault(false) }
+            if (idx >= 0) {
+                runCatching { JSONObject(lines[idx]).optString("image").takeIf { it.isNotEmpty() }?.let { File(d, it).delete() } }
+                lines.removeAt(idx)
+                ev.writeText(if (lines.isEmpty()) "" else lines.joinToString("\n", postfix = "\n"))
+            }
+        }
 
         val o = JSONObject().put("time", time).put("type", type).put("title", title).put("build", appVersion(ctx))
         val io2 = JSONObject()
@@ -119,13 +129,14 @@ object MechReport {
         o.put("info", io2)
         if (crop != null) {
             val imgs = File(d, "boards").apply { mkdirs() }
-            if ((imgs.list()?.size ?: 0) < MAX_IMAGES) {
+            // 圖太多就刪最舊的，新的一定存得進去
+            imgs.listFiles()?.sortedBy { it.name }?.let { fs -> if (fs.size >= MAX_IMAGES) fs.take(fs.size - MAX_IMAGES + 1).forEach { it.delete() } }
+            run {
                 val name = "b" + System.currentTimeMillis() + ".jpg"
                 File(imgs, name).writeBytes(jpeg(crop))
                 o.put("image", "boards/$name")
             }
         }
-        val ev = File(d, EVENTS)
         ev.appendText(o.toString() + "\n")
         // 太多就丟掉最舊的
         val lines = ev.readLines()
@@ -159,6 +170,13 @@ object MechReport {
             sb.append("設定：每步 ${s.stepMs} 毫秒、轉珠時間 ${s.timeLimitSec} 秒、計算 ${s.solveBudgetMs} 毫秒、${s.dirs} 方向\n")
         }
         runCatching { sb.append("記住的關卡：").append(StagePresetStore(ctx).load().size).append(" 關\n") }
+        runCatching {
+            val sh = ShapeStore(ctx).load()
+            val names = "火水木光暗心"
+            sb.append("教過的黑白珠形狀：").append(sh.size).append(" 筆")
+            if (sh.isNotEmpty()) sb.append("（").append((0 until 6).joinToString(" ") { c -> "${names[c]}${sh.count { it.first == c }}" }).append("）")
+            sb.append('\n')
+        }
 
         sb.append("\n==== 各種情況的次數 ====\n")
         runCatching {
