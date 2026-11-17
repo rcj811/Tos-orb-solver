@@ -75,6 +75,12 @@ show normal1; cmd calib; sleep 3
 cmd calibtap:30; sleep 1
 cmd click:儲存並學習; sleep 2
 cmd click:關閉; sleep 1
+# 全盤清除 → 標幾顆 → 儲存
+show normal1; cmd calib; sleep 3
+cmd click:全盤清除; sleep 1
+cmd calibtap:8; sleep 2
+cmd click:儲存並學習; sleep 2
+cmd click:關閉; sleep 1
 cmd state; sleep 1
 alive 校
 
