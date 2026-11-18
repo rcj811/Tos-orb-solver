@@ -78,6 +78,7 @@ class MainActivity : Activity() {
 
         root.addView(title("自轉珠", 24f))
         root.addView(TextView(this).apply { text = "目前版本：${appVersion(this@MainActivity)}"; textSize = 14f })
+        root.addView(row(button("檢查更新") { AppUpdater.check(this, manual = true) }))
         root.addView(note("自動轉珠").apply { setPadding(0, 0, 0, 0) })
 
         // ---------- 自動轉珠 ----------
@@ -249,6 +250,7 @@ class MainActivity : Activity() {
         super.onResume()
         refreshAuto()
         showCrashLogIfAny()
+        AppUpdater.check(this)   // 每次開啟檢查新版
         main.postDelayed({ askPermissionsIfNeeded() }, 350)
     }
 

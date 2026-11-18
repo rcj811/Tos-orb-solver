@@ -30,6 +30,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -76,12 +78,27 @@ jobs:
           name: tos-orb-solver-apk
           path: tos-orb-solver-${{ github.run_number }}.apk
 
+      - name: 產生更新內容
+        run: |
+          PREV=$(git tag -l 'build-*' --sort=-v:refname | head -1)
+          {
+            echo "## 自轉珠 v0.1.${{ github.run_number }}"
+            echo
+            echo "### 更新內容"
+            if [ -n "$PREV" ]; then
+              git log "$PREV"..${{ github.sha }} --no-merges --pretty='- %s' | grep -v '^- CI ' || echo "- 例行重新編譯"
+            else
+              git log -1 ${{ github.sha }} --pretty='- %s'
+            fi
+          } > notes.md
+          cat notes.md
+
       - name: 發布到 Releases（手機可直接下載）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: 轉珠求解器 build ${{ github.run_number }}
-          body: 由 commit ${{ github.sha }} 自動編譯。下載 APK 後安裝即可（首次需允許安裝未知來源 App）。
+          name: 自轉珠 v0.1.${{ github.run_number }}
+          body_path: notes.md
           files: |
             tos-orb-solver-${{ github.run_number }}.apk
             tos-orb-solver.apk
