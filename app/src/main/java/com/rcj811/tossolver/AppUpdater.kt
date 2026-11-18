@@ -24,7 +24,7 @@ import kotlin.concurrent.thread
  * 每次開啟 App 檢查 GitHub Releases，有新版就跳出版本號與更新內容，一鍵下載並開啟安裝畫面。
  */
 object AppUpdater {
-    private const val REPO = "rcj811/tos-orb-solver"
+    private const val REPO = "rcj811/Tos-orb-solver"
     private const val APK_NAME = "tos-orb-solver.apk"
     private const val APP_LABEL = "自轉珠"
     private const val VERSION_PREFIX = "v0.1."
