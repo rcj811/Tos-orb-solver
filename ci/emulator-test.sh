@@ -100,6 +100,17 @@ tail -n +"$L0" "$OUT/logcat.txt" | grep -E "TOSTEST|AndroidRuntime" | sed 's/.*T
 adb shell input keyevent 4; sleep 1
 cmd click:取消; sleep 1
 
+say "5b. 關：隊長→黃框，按完成（先拖隊長頭像再轉珠）"
+L2=$(wc -l < "$OUT/logcat.txt")
+show normal1; sleep 4
+for t in 1 2 3; do cmd stage; sleep 4; done
+cmd click:隊長→黃框; sleep 1
+cmd stagecell:1; sleep 1
+cmd click:完成; sleep 12
+tail -n +"$L2" "$OUT/logcat.txt" | grep "TOSTEST" | grep -E "拖隊長|點「隊長|點「完成" | sed 's/.*TOSTEST[^:]*: //' | head
+if ! tail -n +"$L2" "$OUT/logcat.txt" | grep -q "拖隊長頭像"; then echo "（注意：這次沒有拖隊長頭像）"; fi
+alive 隊長黃框
+
 say "5. 關：每顆按鈕、選項、顏色、筆刷、盤面格子"
 for round in 1 2 3; do
   show normal3; cmd stage; sleep 3; shot "stage-$round"

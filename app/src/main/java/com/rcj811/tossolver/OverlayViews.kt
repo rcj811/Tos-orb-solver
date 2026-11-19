@@ -313,6 +313,13 @@ class StageRulesView(context: Context) : View(context) {
                 canvas.drawCircle(x + s / 2, y + s / 2, s * 0.25f, fill)
                 canvas.drawText("終", x + s / 2, y + s / 2 + s * 0.1f, text)
             }
+            if (i == rules.leader) {   // 隊長頭像要拖到這格（黃框）
+                fill.color = Color.parseColor("#FFD600")
+                canvas.drawCircle(x + s * 0.78f, y + s * 0.78f, s * 0.2f, fill)
+                text.color = Color.BLACK
+                canvas.drawText("隊", x + s * 0.78f, y + s * 0.78f + s * 0.08f, text)
+                text.color = Color.WHITE
+            }
             canvas.drawRect(x, y, x + s, y + s, line)
         }
         canvas.restore()

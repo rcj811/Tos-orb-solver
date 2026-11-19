@@ -1339,11 +1339,20 @@ class AutoTurnService : AccessibilityService() {
                     // 問號盤：手指一直按著，馬上接著拖（不預覽）
                     continueDrag(held, pts, settings.stepMs.toLong()) { ok -> pathView?.clear(); done(ok) }
                 } else if (settings.autoDrag) {
+                    val leaderCell = stage.leader
+                    stage.leader = -1   // 只用這一回合（黃框每回合位置不同）
                     main.postDelayed({
-                        drag(pts, settings.stepMs.toLong()) { ok ->
-                            pathView?.clear()
-                            done(ok)
+                        val turnOrbs = {
+                            drag(pts, settings.stepMs.toLong()) { ok ->
+                                pathView?.clear()
+                                done(ok)
+                            }
                         }
+                        // 角色符石地型盾：先把隊長頭像拖到黃框放下，再轉珠
+                        if (leaderCell in 0 until geo.cells) dragLeader(geo, leaderCell) { ok ->
+                            if (!ok) toast("拖隊長頭像沒成功，照常轉珠")
+                            main.postDelayed({ turnOrbs() }, 350)
+                        } else turnOrbs()
                     }, settings.previewMs)
                 } else {
                     main.postDelayed({ pathView?.clear() }, 8000)
@@ -1393,6 +1402,28 @@ class AutoTurnService : AccessibilityService() {
                 val end = points.last()
                 val release = Path().apply { moveTo(end.x, end.y); lineTo(end.x, end.y + 1f) }
                 dispatch(s2.continueStroke(release, 0, HOLD_END_MS, false), done)
+            }
+        }
+    }
+
+    /**
+     * 把隊長頭像（隊伍列第 1 格，就在盤面上方）拖到盤面的 cell 放下。
+     * 隊伍列的頭像和盤面的 6 欄對齊，中心大約在盤面上緣往上 0.8 格。
+     */
+    private fun dragLeader(geo: BoardGeometry, cell: Int, done: (Boolean) -> Unit) {
+        val from = PointF(geo.left + geo.cell * 0.5f, geo.top - geo.cell * 0.8f)
+        val to = PointF(geo.centerX(cell), geo.centerY(cell))
+        TestHooks.log("拖隊長頭像 (${from.x.toInt()},${from.y.toInt()}) → 第 $cell 格 (${to.x.toInt()},${to.y.toInt()})")
+        val hold = Path().apply { moveTo(from.x, from.y); lineTo(from.x + 1f, from.y) }
+        val s1 = GestureDescription.StrokeDescription(hold, 0, 250, true)
+        dispatch(s1) { ok1 ->
+            if (!ok1) { done(false); return@dispatch }
+            val move = Path().apply { moveTo(from.x + 1f, from.y); lineTo(to.x, to.y) }
+            val s2 = s1.continueStroke(move, 0, 450, true)
+            dispatch(s2) { ok2 ->
+                if (!ok2) { done(false); return@dispatch }
+                val release = Path().apply { moveTo(to.x, to.y); lineTo(to.x, to.y + 1f) }
+                dispatch(s2.continueStroke(release, 0, 150, false), done)
             }
         }
     }

@@ -229,16 +229,18 @@ object StageConds {
 
     /** 綠漩渦（起點）／紅漩渦（終點） */
     private object Vortex : Cond("漩渦") {
-        override fun isSet(r: StageRules) = r.green >= 0 || r.red >= 0
-        override fun clear(r: StageRules) { r.green = -1; r.red = -1 }
-        override fun copy(dst: StageRules, src: StageRules) { dst.green = src.green; dst.red = src.red }
+        override fun isSet(r: StageRules) = r.green >= 0 || r.red >= 0 || r.leader >= 0
+        override fun clear(r: StageRules) { r.green = -1; r.red = -1; r.leader = -1 }
+        override fun copy(dst: StageRules, src: StageRules) { dst.green = src.green; dst.red = src.red; dst.leader = src.leader }
         override fun merge(dst: StageRules, src: StageRules) {
             if (src.green >= 0) dst.green = src.green
             if (src.red >= 0) dst.red = src.red
+            if (src.leader >= 0) dst.leader = src.leader
         }
         override fun summary(r: StageRules) = listOfNotNull(
             if (r.green >= 0) "起點 ${pos(r.green)}" else null,
             if (r.red >= 0) "終點 ${pos(r.red)}" else null,
+            if (r.leader >= 0) "隊長先拖到 ${pos(r.leader)}" else null,
         )
         override fun save(r: StageRules) = listOf("g=${r.green}", "r=${r.red}")
         override fun load(r: StageRules, k: String, v: String): Boolean = when (k) {
@@ -273,6 +275,8 @@ object StageConds {
         override val controls: List<Ctl> = listOf(
             Ctl.Brush("green", "起點(綠)", { r, i -> r.green = if (r.green == i) -1 else i }, { if (it.green >= 0) 1 else 0 }),
             Ctl.Brush("red", "終點(紅)", { r, i -> r.red = if (r.red == i) -1 else i }, { if (it.red >= 0) 1 else 0 }),
+            // 角色符石地型盾：轉珠前先把隊長頭像拖到黃框這一格放下，再照常轉珠
+            Ctl.Brush("leader", "隊長→黃框", { r, i -> r.leader = if (r.leader == i) -1 else i }, { if (it.leader >= 0) 1 else 0 }),
         )
     }
 

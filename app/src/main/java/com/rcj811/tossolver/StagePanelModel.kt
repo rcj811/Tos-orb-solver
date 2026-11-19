@@ -13,8 +13,8 @@ package com.rcj811.tossolver
 class StagePanelModel(val edit: StageRules) {
     companion object {
         // 面板排列順序（跟之前的版面一樣）；沒列到的新條件自動排在最後
-        val BRUSH_ORDER = listOf("cell1", "cell4", "cell8", "cell16", "cell2", "green", "red", "cell32", "cell64", "cell128")
-        val BRUSH_ROWS = intArrayOf(4, 3, 3)
+        val BRUSH_ORDER = listOf("cell1", "cell4", "cell8", "cell16", "cell2", "green", "red", "leader", "cell32", "cell64", "cell128")
+        val BRUSH_ROWS = intArrayOf(4, 4, 3)
         val BUTTON_ORDER = listOf("combo", "first", "three", "attr", "num", "shape", "shapeColor", "sticky", "fire", "groupK", "reveal")
         val MASK_ORDER = listOf("allMask", "antiMask", "groupMask")
         /** 條件分組：相關的按鈕和顏色列放在同一區（沒列到的新條件放「其他」） */

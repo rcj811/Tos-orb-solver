@@ -45,6 +45,8 @@ class StageRules {
     var sticky = false     // 黏手路徑：碰過的格不能再碰
     var firePath = false   // 火焰路徑：不要重踩剛走過的格
     var green = -1         // 綠漩渦：起點
+    /** 轉珠前先把隊長頭像拖到這一格（角色符石地型盾的黃框）；只用這一回合，不記進關卡 */
+    var leader = -1
     var red = -1           // 紅漩渦：終點
     val cellFlags = IntArray(MAX_CELLS)
 
@@ -69,6 +71,7 @@ class StageRules {
     fun withoutOrbMarks(): StageRules = StageRules().also { r ->
         r.copyFrom(this)
         for (i in 0 until MAX_CELLS) r.cellFlags[i] = r.cellFlags[i] and ORB_MARKS.inv()
+        r.leader = -1   // 隊長→黃框每回合位置不同，不記進關卡
     }
 
     fun toggle(cell: Int, flag: Int) {

@@ -32,9 +32,9 @@ class StagePanelModelTest {
         val m = model()
         val shown = m.brushes.size + m.buttons.size + m.masks.size
         assertEquals("每個條件模組的控制項都要出現在面板上", StageConds.CONTROLS.size, shown)
-        assertEquals(10, m.brushes.size)
-        // 版面跟之前一樣：筆刷 4、3、3
-        assertEquals(listOf(4, 3, 3), m.brushRows().map { it.size })
+        assertEquals(11, m.brushes.size)
+        // 筆刷 4、4、3（第二列：裂痕、起點、終點、隊長→黃框）
+        assertEquals(listOf(4, 4, 3), m.brushRows().map { it.size })
         assertEquals(listOf("拼圖盾", "燃燒(不碰)", "火焰區(終點)", "黑洞(不停)"), m.brushRows()[0].map { it.name })
         assertEquals(listOf("combo", "first", "three", "attr", "num", "shape", "shapeColor", "sticky", "fire", "groupK", "reveal"), m.buttons.map { it.id })
         assertEquals(listOf("allMask", "antiMask", "groupMask"), m.masks.map { it.id })
@@ -334,6 +334,7 @@ class StagePanelModelTest {
                     else -> m.longPressButton(m.buttons.random(rnd))
                 }
             }
+            m.edit.leader = -1   // 「隊長→黃框」只用一回合，本來就不存檔
             val s = m.edit.serialize()
             val back = StageRules().apply { deserialize(s) }
             assertEquals(s, back.serialize())
@@ -348,5 +349,27 @@ class StagePanelModelTest {
             val all = m.edit.conflicts(IntArray(30) { it % 6 }, colors)
             for (c in m.edit.ruleConflicts()) assertTrue(c, all.contains(c))
         }
+    }
+
+    /** 角色符石地型盾：「隊長→黃框」只用這一回合，不記進關卡 */
+    @Test
+    fun leaderBrushIsOneTurnOnly() {
+        val m = model()
+        val k = m.brushes.indexOfFirst { it.id == "leader" }
+        assertTrue("要有「隊長→黃框」筆刷", k >= 0)
+        m.selectBrush(k)
+        m.tapCell(7)
+        assertEquals(7, m.edit.leader)
+        assertTrue(m.isActive(m.brushes[k]))
+        assertFalse(m.edit.isEmpty())
+        assertTrue(m.edit.summary().contains("隊長"))
+        // 存進關卡時拿掉（黃框每回合不同）
+        assertEquals(-1, m.edit.withoutOrbMarks().leader)
+        // 再點一次＝取消
+        m.tapCell(7)
+        assertEquals(-1, m.edit.leader)
+        // 筆刷排列：4、4、3（起點、終點、隊長在同一列）
+        assertEquals(listOf(4, 4, 3), m.brushRows().map { it.size })
+        assertEquals(listOf("green", "red", "leader"), m.brushRows()[1].drop(1).map { it.id })
     }
 }
