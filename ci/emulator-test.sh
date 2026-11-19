@@ -107,8 +107,8 @@ for t in 1 2 3; do cmd stage; sleep 4; done
 cmd click:隊長→黃框; sleep 1
 cmd stagecell:1; sleep 1
 cmd click:完成; sleep 12
-tail -n +"$L2" "$OUT/logcat.txt" | grep "TOSTEST" | grep -E "拖隊長|點「隊長|點「完成" | sed 's/.*TOSTEST[^:]*: //' | head
-if ! tail -n +"$L2" "$OUT/logcat.txt" | grep -q "拖隊長頭像"; then echo "（注意：這次沒有拖隊長頭像）"; fi
+tail -n +"$L2" "$OUT/logcat.txt" | grep "TOSTEST" | grep -E "隊長頭像|點「隊長|點「完成" | sed 's/.*TOSTEST[^:]*: //' | head
+if ! tail -n +"$L2" "$OUT/logcat.txt" | grep -q "隊長頭像"; then echo "（注意：這次沒有從隊長頭像開始）"; fi
 alive 隊長黃框
 
 say "5. 關：每顆按鈕、選項、顏色、筆刷、盤面格子"
